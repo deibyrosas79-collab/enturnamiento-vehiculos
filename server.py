@@ -1343,6 +1343,7 @@ def main() -> None:
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Aplicacion lista en http://localhost:{PORT}")
     print(f"Base de datos SQLite: {DB_PATH}")
+    print("UI: Inter font, pill tabs, lift cards, spring modal — v2.1")
     server.serve_forever()
 
 
