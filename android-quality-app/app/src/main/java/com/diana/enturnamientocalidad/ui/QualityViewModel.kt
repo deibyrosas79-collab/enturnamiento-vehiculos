@@ -51,7 +51,12 @@ class QualityViewModel(
             _uiState.value = _uiState.value.copy(loading = true, errorMessage = null)
             runCatching { repository.login(username, password) }
                 .onSuccess { applyState(it, repository::clearSession) }
-                .onFailure { _uiState.value = _uiState.value.copy(loading = false, errorMessage = it.message) }
+                .onFailure {
+                    _uiState.value = _uiState.value.copy(
+                        loading = false,
+                        errorMessage = humanizeError(it),
+                    )
+                }
         }
     }
 
@@ -62,7 +67,7 @@ class QualityViewModel(
                 .onSuccess { applyState(it, repository::clearSession) }
                 .onFailure {
                     repository.clearSession()
-                    _uiState.value = QualityUiState(errorMessage = it.message)
+                    _uiState.value = QualityUiState(errorMessage = humanizeError(it))
                 }
         }
     }
@@ -96,7 +101,10 @@ class QualityViewModel(
                 applyState(it, repository::clearSession)
                 onComplete(true)
             }.onFailure {
-                _uiState.value = _uiState.value.copy(loading = false, errorMessage = it.message)
+                _uiState.value = _uiState.value.copy(
+                    loading = false,
+                    errorMessage = humanizeError(it),
+                )
                 onComplete(false)
             }
         }
@@ -124,6 +132,21 @@ class QualityViewModel(
             approved = state.quality.approved,
             rejected = state.quality.rejected,
         )
+    }
+
+    private fun humanizeError(error: Throwable): String {
+        val message = error.message.orEmpty()
+        return when {
+            message.contains("Unable to resolve host", ignoreCase = true) ->
+                "No fue posible conectar la app con el programa principal."
+            message.contains("Failed to connect", ignoreCase = true) ->
+                "No fue posible conectar la app con el programa principal."
+            message.contains("timeout", ignoreCase = true) ->
+                "El servidor tardo demasiado en responder. Intenta nuevamente."
+            message.isBlank() ->
+                "Ocurrio un problema al sincronizar la informacion de calidad."
+            else -> message
+        }
     }
 
     companion object {

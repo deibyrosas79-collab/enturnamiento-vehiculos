@@ -10,15 +10,19 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import kotlinx.coroutines.delay
 
 @Composable
 fun QualityApp(viewModel: QualityViewModel) {
     val navController = rememberNavController()
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val currentBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = currentBackStackEntry?.destination?.route
 
     LaunchedEffect(uiState.loggedIn) {
         if (uiState.loggedIn) {
@@ -36,6 +40,15 @@ fun QualityApp(viewModel: QualityViewModel) {
         uiState.errorMessage?.let {
             snackbarHostState.showSnackbar(it)
             viewModel.clearError()
+        }
+    }
+
+    LaunchedEffect(uiState.loggedIn, currentRoute) {
+        if (uiState.loggedIn && currentRoute == "home") {
+            while (true) {
+                delay(30000)
+                viewModel.refresh()
+            }
         }
     }
 

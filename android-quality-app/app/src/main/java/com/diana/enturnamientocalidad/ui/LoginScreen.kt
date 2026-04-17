@@ -58,6 +58,10 @@ fun LoginScreen(
                     text = "Ingresa con un usuario de calidad para revisar vehiculos y guardar el checklist.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
+                Text(
+                    text = "Sincronizada con el programa principal de enturnamiento.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
                 OutlinedTextField(
                     value = username,
                     onValueChange = { username = it },
@@ -97,6 +101,10 @@ fun LoginScreen(
                 }
                 Text(
                     text = "Usuario inicial: calidad / Calidad2026!",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    text = "Servidor: enturnamiento-vehiculos.onrender.com",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
