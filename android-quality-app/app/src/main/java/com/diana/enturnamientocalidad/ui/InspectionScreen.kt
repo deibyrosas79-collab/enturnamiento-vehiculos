@@ -20,7 +20,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Checklist
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -29,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -41,6 +44,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.diana.enturnamientocalidad.data.model.ChecklistSubmissionItem
 import com.diana.enturnamientocalidad.data.model.VehicleDto
@@ -167,19 +171,54 @@ fun InspectionScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item {
-                Card {
+                Card(
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(26.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                    ),
+                ) {
                     Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
-                        Text(
-                            text = "Checklist de calidad",
-                            style = MaterialTheme.typography.headlineSmall,
-                        )
-                        Text("Conductor: ${vehicle.driverName}")
-                        Text("Transportadora: ${vehicle.carrier}")
-                        Text("Destino: ${vehicle.city} - ${vehicle.zone}")
-                        Text("Turno: ${vehicle.turnPosition ?: "-"}")
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        ) {
+                            Surface(
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
+                                color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.14f),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Checklist,
+                                    contentDescription = null,
+                                    tint = androidx.compose.ui.graphics.Color.White,
+                                    modifier = Modifier.padding(12.dp),
+                                )
+                            }
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    text = "Checklist de calidad",
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    color = androidx.compose.ui.graphics.Color.White,
+                                    fontWeight = FontWeight.ExtraBold,
+                                )
+                                Text(
+                                    text = "Vehiculo ${vehicle.plate} listo para inspeccion.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.85f),
+                                )
+                            }
+                        }
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            InspectionMetaChip("Conductor", vehicle.driverName)
+                            InspectionMetaChip("Transportadora", vehicle.carrier)
+                            InspectionMetaChip("Destino", "${vehicle.city} - ${vehicle.zone}")
+                            InspectionMetaChip("Turno", vehicle.turnPosition?.toString() ?: "-")
+                        }
                     }
                 }
             }
@@ -206,7 +245,12 @@ fun InspectionScreen(
             }
 
             item {
-                Card {
+                Card(
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                    ),
+                ) {
                     Column(
                         modifier = Modifier.padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -290,6 +334,10 @@ fun InspectionScreen(
                     },
                     enabled = !loading,
                     modifier = Modifier.fillMaxWidth(),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                    ),
                 ) {
                     Text(if (loading) "Guardando..." else "Guardar inspeccion")
                 }
@@ -308,7 +356,12 @@ private fun ChecklistCard(
     onStatusChange: (String) -> Unit,
     onPickEvidence: () -> Unit,
 ) {
-    Card {
+    Card(
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+        ),
+    ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -351,6 +404,31 @@ private fun ChecklistCard(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun InspectionMetaChip(label: String, value: String) {
+    Surface(
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+        color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.14f),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.72f),
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodySmall,
+                color = androidx.compose.ui.graphics.Color.White,
+                fontWeight = FontWeight.Bold,
+            )
         }
     }
 }

@@ -2,9 +2,13 @@ package com.diana.enturnamientocalidad.ui
 
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -14,6 +18,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
 @Composable
@@ -54,7 +59,26 @@ fun QualityApp(viewModel: QualityViewModel) {
 
     Scaffold(
         modifier = androidx.compose.ui.Modifier.fillMaxSize(),
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = {
+            SnackbarHost(snackbarHostState) { data ->
+                Surface(
+                    color = MaterialTheme.colorScheme.inverseSurface,
+                    contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                    shape = MaterialTheme.shapes.large,
+                    shadowElevation = 10.dp,
+                ) {
+                    Text(
+                        text = data.visuals.message,
+                        modifier = androidx.compose.ui.Modifier.padding(
+                            horizontal = 18.dp,
+                            vertical = 14.dp,
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        },
     ) { padding ->
         NavHost(navController = navController, startDestination = "login") {
             composable("login") {
