@@ -255,6 +255,7 @@ function renderQueueTables() {
       ["Destino", (item) => `${item.city} - ${item.zone}`],
       ["Calidad", (item) => qualityBadge(item.qualityStatus)],
       ["Canal", (item) => `<span class="badge channel">${item.registrationChannel}</span>`],
+      ["Soportes", renderVehicleSupports],
       ["Ingreso", (item) => formatDate(item.createdAt)],
       ["Acciones", renderQueueActions],
     ],
@@ -266,6 +267,7 @@ function renderQueueTables() {
       ["Celular", (item) => item.driverPhone || ""],
       ["P. vacío (kg)", (item) => formatNumber(item.emptyWeightKg)],
       ["Destino", (item) => `${item.city} - ${item.zone}`],
+      ["Soportes", renderVehicleSupports],
       ["Ingreso", (item) => formatDate(item.createdAt)],
       ["Asignado", (item) => formatDate(item.assignedAt)],
     ],
@@ -277,6 +279,7 @@ function renderQueueTables() {
       ["Celular", (item) => item.driverPhone || ""],
       ["Destino", (item) => `${item.city} - ${item.zone}`],
       ["Calidad", (item) => qualityBadge(item.qualityStatus)],
+      ["Soportes", renderVehicleSupports],
       ["Motivo", (item) => item.rejectionReason || "No informado"],
       ["Rechazado", (item) => formatDate(item.rejectedAt)],
     ],
@@ -349,7 +352,7 @@ function renderQualityStack(container, rows, allowInspect, emptyText) {
   }
   container.innerHTML = rows.map((item) => `
     <article class="vehicle-card">
-      <h4>${escapeHtml(item.plate)} <span class="badge ${badgeClass(item.qualityStatus)}">${escapeHtml(item.qualityStatus)}</span></h4>
+      <h4>${escapeHtml(item.plate)} <span class="badge ${badgeClass(item.qualityStatus)}">${escapeHtml(translateQualityStatus(item.qualityStatus))}</span></h4>
       <div class="vehicle-meta">
         <span><strong>Transportadora:</strong> ${escapeHtml(item.carrier)}</span>
         <span><strong>Turno:</strong> ${item.turnPosition || "-"}</span>
@@ -358,6 +361,7 @@ function renderQualityStack(container, rows, allowInspect, emptyText) {
         <span><strong>Destino:</strong> ${escapeHtml(item.city)} - ${escapeHtml(item.zone)}</span>
         <span><strong>Responsable última:</strong> ${escapeHtml(item.latestInspection?.inspectorName || "-")}</span>
       </div>
+      ${renderVehicleSupports(item)}
       <p class="muted-text">${escapeHtml(item.latestInspection?.findingsSummary || "Pendiente de checklist")}</p>
       ${allowInspect ? `<div class="actions"><button class="primary" type="button" data-quality-review="${item.id}">Revisar vehículo</button></div>` : ""}
     </article>
@@ -374,7 +378,7 @@ function renderReport(container, rows, emptyText) {
     return;
   }
   container.innerHTML = renderTable(
-    [["Concepto", (item) => item.label], ["Cantidad", (item) => item.count]],
+    [["Concepto", (item) => translateReportLabel(item.label)], ["Cantidad", (item) => item.count]],
     rows,
     emptyText
   );
@@ -625,7 +629,18 @@ function filterVehicles(rows) {
 }
 
 function qualityBadge(status) {
-  return `<span class="badge ${badgeClass(status)}">${escapeHtml(status || "PENDING")}</span>`;
+  return `<span class="badge ${badgeClass(status)}">${escapeHtml(translateQualityStatus(status || "PENDING"))}</span>`;
+}
+
+function renderVehicleSupports(item) {
+  const links = [];
+  if (item.driverSelfieUrl) {
+    links.push(`<a class="support-link" href="${encodeURI(item.driverSelfieUrl)}" target="_blank" rel="noopener noreferrer">Ver selfie</a>`);
+  }
+  if (item.driverSignatureUrl) {
+    links.push(`<a class="support-link" href="${encodeURI(item.driverSignatureUrl)}" target="_blank" rel="noopener noreferrer">Ver firma</a>`);
+  }
+  return links.length ? `<div class="support-links">${links.join("")}</div>` : `<span class="muted-text">Sin soportes visuales.</span>`;
 }
 
 function badgeClass(status) {
@@ -637,6 +652,25 @@ function badgeClass(status) {
     REJECTED: "rejected",
     ASSIGNED: "assigned",
   }[status] || "pending";
+}
+
+function translateQualityStatus(status) {
+  return {
+    APPROVED: "Apto",
+    PENDING: "Pendiente",
+    IN_REVIEW: "En revisión",
+    REWORK: "Requiere arreglos",
+    REJECTED: "Rechazado",
+    ASSIGNED: "Asignado",
+  }[status] || status || "Pendiente";
+}
+
+function translateReportLabel(label) {
+  return {
+    APPROVED: "Apto",
+    REWORK: "Requiere arreglos",
+    REJECTED: "No apto / rechazado",
+  }[label] || label;
 }
 
 async function filesToDataUrls(files) {

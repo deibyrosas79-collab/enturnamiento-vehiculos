@@ -249,12 +249,20 @@ private fun StatusPill(status: String) {
         ),
     ) {
         Text(
-            text = status,
+            text = translateQualityStatus(status),
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
             color = color,
             style = MaterialTheme.typography.labelLarge,
         )
     }
+}
+
+private fun translateQualityStatus(status: String): String = when (status) {
+    "APPROVED" -> "Apto"
+    "REWORK" -> "Requiere arreglos"
+    "REJECTED" -> "Rechazado"
+    "IN_REVIEW" -> "En revision"
+    else -> "Pendiente"
 }
 
 @Composable

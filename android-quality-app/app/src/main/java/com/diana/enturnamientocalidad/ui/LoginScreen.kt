@@ -51,7 +51,7 @@ fun LoginScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 Text(
-                    text = "Calidad Diana",
+                    text = "Control Calidad",
                     style = MaterialTheme.typography.headlineSmall,
                 )
                 Text(

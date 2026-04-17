@@ -256,6 +256,8 @@ def ensure_vehicle_columns(db: sqlite3.Connection) -> None:
         "carrier_id": "TEXT",
         "driver_phone": "TEXT",
         "empty_weight_kg": "REAL",
+        "driver_selfie_url": "TEXT",
+        "driver_signature_url": "TEXT",
         "registration_channel": "TEXT DEFAULT 'DESK'",
         "gps_lat": "REAL",
         "gps_lng": "REAL",
@@ -443,6 +445,8 @@ def serialize_vehicle(
         "driverId": row["driver_id"],
         "driverPhone": row["driver_phone"],
         "emptyWeightKg": row["empty_weight_kg"],
+        "driverSelfieUrl": row["driver_selfie_url"],
+        "driverSignatureUrl": row["driver_signature_url"],
         "destinationId": row["destination_id"],
         "city": row["city"],
         "zone": row["zone"],
@@ -479,7 +483,7 @@ def build_analytics(rejected: List[Dict[str, Any]], inspections: List[Dict[str, 
         "Bodegas y operadores": 0,
         "Subproductos": 0,
     }
-    quality_decisions = {"APPROVED": 0, "REWORK": 0, "REJECTED": 0}
+    quality_decisions = {"Apto": 0, "Requiere arreglos": 0, "No apto / rechazado": 0}
 
     for vehicle in rejected:
         carrier = vehicle["carrier"] or "Sin transportadora"
@@ -489,7 +493,12 @@ def build_analytics(rejected: List[Dict[str, Any]], inspections: List[Dict[str, 
 
     for inspection in inspections:
         decision = inspection["finalDecision"]
-        quality_decisions[decision] = quality_decisions.get(decision, 0) + 1
+        decision_label = {
+            QUALITY_APPROVED: "Apto",
+            QUALITY_REWORK: "Requiere arreglos",
+            QUALITY_REJECTED: "No apto / rechazado",
+        }.get(decision, decision)
+        quality_decisions[decision_label] = quality_decisions.get(decision_label, 0) + 1
         for item in inspection["suitability"]:
             if item in suitability_counts:
                 suitability_counts[item] += 1
@@ -610,11 +619,18 @@ def create_vehicle(
     driver_phone = clean_text(payload.get("driverPhone"))
     destination_id = clean_text(payload.get("destinationId"))
     empty_weight = parse_float(payload.get("emptyWeightKg"))
+    driver_selfie_data_url = payload.get("driverSelfieDataUrl")
+    driver_signature_data_url = payload.get("driverSignatureDataUrl")
 
     if not all([plate, carrier_id, driver_name, driver_id, driver_phone, destination_id]):
         raise AppError("Todos los campos del enturnamiento son obligatorios.", 400)
     if empty_weight is None:
         raise AppError("El peso vacio del vehiculo es obligatorio.", 400)
+    if registration_channel == "QR":
+        if not isinstance(driver_selfie_data_url, str) or not driver_selfie_data_url.startswith("data:image/"):
+            raise AppError("Debes tomar una selfie del conductor para registrarte.", 400)
+        if not isinstance(driver_signature_data_url, str) or not driver_signature_data_url.startswith("data:image/"):
+            raise AppError("Debes firmar en pantalla para completar el registro.", 400)
 
     with get_connection() as db:
         destination = db.execute("SELECT * FROM destinations WHERE id = ?", (destination_id,)).fetchone()
@@ -635,17 +651,29 @@ def create_vehicle(
         next_position = db.execute(
             "SELECT COALESCE(MAX(queue_position), 0) + 1 FROM vehicles WHERE status = 'QUEUED'"
         ).fetchone()[0]
+        vehicle_id = create_id()
         tracking_token = create_id()
+        driver_selfie_url = (
+            save_data_url_image(vehicle_id, "registro", "selfie", 1, driver_selfie_data_url)
+            if isinstance(driver_selfie_data_url, str) and driver_selfie_data_url.startswith("data:image/")
+            else None
+        )
+        driver_signature_url = (
+            save_data_url_image(vehicle_id, "registro", "firma", 1, driver_signature_data_url)
+            if isinstance(driver_signature_data_url, str) and driver_signature_data_url.startswith("data:image/")
+            else None
+        )
         db.execute(
             """
             INSERT INTO vehicles (
                 id, plate, carrier_id, carrier_code, carrier, driver_name, driver_id, driver_phone,
-                empty_weight_kg, destination_id, city, zone, status, quality_status, queue_position,
-                created_at, registration_channel, gps_lat, gps_lng, gps_distance_m, public_tracking_token
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'QUEUED', ?, ?, ?, ?, ?, ?, ?, ?)
+                empty_weight_kg, driver_selfie_url, driver_signature_url, destination_id, city, zone,
+                status, quality_status, queue_position, created_at, registration_channel, gps_lat, gps_lng,
+                gps_distance_m, public_tracking_token
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'QUEUED', ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                create_id(),
+                vehicle_id,
                 plate,
                 carrier["id"],
                 carrier["code"],
@@ -654,6 +682,8 @@ def create_vehicle(
                 driver_id,
                 driver_phone,
                 empty_weight,
+                driver_selfie_url,
+                driver_signature_url,
                 destination["id"],
                 destination["city"],
                 destination["zone"],
