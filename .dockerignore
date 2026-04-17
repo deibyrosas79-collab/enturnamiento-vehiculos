@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+*.log
+.git/
+.github/
+.idea/
+.vscode/
+.env
+portable-python/
+portable-python-lite/
+android-quality-app/
+data/
+uploads/
+*.zip

@@ -1,0 +1,2 @@
+# Esta aplicacion no requiere paquetes externos.
+# Usa solo librerias incluidas con Python: http.server y sqlite3.

@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Enturnamiento Diana Logistica</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Grupo Diana</p>
+          <h1>Control de enturnamiento y calidad</h1>
+          <p class="hero-text">
+            Registro logístico, geocerca para conductores, checklist de calidad y reportes operativos.
+          </p>
+        </div>
+        <img class="hero-logo" src="assets/logo-logistica.png" alt="Logo Diana Logistica" />
+      </header>
+
+      <section id="authScreen" class="auth-card">
+        <div>
+          <p class="eyebrow">Acceso</p>
+          <h2>Iniciar sesión</h2>
+          <p class="muted-text">Ingresa con un usuario de logística o calidad.</p>
+        </div>
+        <form id="loginForm" class="form-grid compact">
+          <label>
+            Usuario
+            <input id="username" name="username" required placeholder="Ej: logistica" />
+          </label>
+          <label>
+            Clave
+            <input id="password" name="password" type="password" required placeholder="Tu clave" />
+          </label>
+          <button class="primary wide" type="submit">Entrar</button>
+        </form>
+        <div class="info-strip">
+          <span><strong>Usuario inicial logística:</strong> `logistica`</span>
+          <span><strong>Usuario inicial calidad:</strong> `calidad`</span>
+        </div>
+      </section>
+
+      <main id="appShell" class="hidden">
+        <section class="app-topbar">
+          <div>
+            <p class="eyebrow">Sesión activa</p>
+            <h2 id="welcomeText">Panel</h2>
+            <p id="roleText" class="muted-text"></p>
+          </div>
+          <div class="top-actions">
+            <button id="openPublicPageButton" class="ghost" type="button">Abrir registro QR</button>
+            <button id="logoutButton" class="danger" type="button">Cerrar sesión</button>
+          </div>
+        </section>
+
+        <nav id="mainNav" class="nav-tabs">
+          <button class="nav-tab active" data-view="dashboard" type="button">Logística</button>
+          <button class="nav-tab" data-view="quality" type="button">Calidad</button>
+          <button class="nav-tab" data-view="masters" type="button">Datos maestros</button>
+          <button class="nav-tab" data-view="reports" type="button">Reportes</button>
+          <button class="nav-tab" data-view="settings" type="button">Configuración</button>
+        </nav>
+
+        <section id="dashboardView" class="app-view active">
+          <div class="summary-grid">
+            <article><span id="countQueued">0</span><p>En turno</p></article>
+            <article><span id="countQualityPending">0</span><p>Calidad pendiente</p></article>
+            <article><span id="countQualityApproved">0</span><p>Aptos</p></article>
+            <article><span id="countRejected">0</span><p>Rechazados</p></article>
+          </div>
+
+          <div class="layout two-columns">
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Registro</p>
+                  <h3>Enturnar vehículo</h3>
+                </div>
+              </div>
+              <form id="vehicleForm" class="form-grid">
+                <label>Placa<input id="plate" name="plate" required placeholder="Ej: ABC123" /></label>
+                <label>Transportadora<select id="carrierId" name="carrierId" required></select></label>
+                <label>Conductor<input id="driverName" name="driverName" required placeholder="Nombre completo" /></label>
+                <label>Cédula<input id="driverId" name="driverId" required placeholder="Número de cédula" /></label>
+                <label>Celular<input id="driverPhone" name="driverPhone" required placeholder="Ej: 3001234567" /></label>
+                <label>P. vacío (kg)<input id="emptyWeightKg" name="emptyWeightKg" required placeholder="Ej: 8400" /></label>
+                <label class="wide">Destino<select id="destinationId" name="destinationId" required></select></label>
+                <button class="primary wide" type="submit">Registrar en turno</button>
+              </form>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">QR</p>
+                  <h3>Registro de conductores</h3>
+                  <p class="muted-text">Comparte este enlace o imprime el QR para ventanilla.</p>
+                </div>
+              </div>
+              <div class="qr-card">
+                <img id="publicQrImage" alt="QR registro conductores" />
+                <input id="publicRegistrationUrl" readonly />
+                <p class="muted-text">Si el conductor está fuera de la geocerca, no podrá registrarse.</p>
+              </div>
+            </section>
+          </div>
+
+          <section class="panel">
+            <div class="tabs">
+              <button class="tab active" data-queue-tab="queued" type="button">Turnos activos</button>
+              <button class="tab" data-queue-tab="assigned" type="button">Viajes asignados</button>
+              <button class="tab" data-queue-tab="rejected" type="button">Rechazados</button>
+            </div>
+            <div class="toolbar">
+              <label class="search">Buscar<input id="searchInput" type="search" placeholder="Placa, conductor, transportadora..." /></label>
+            </div>
+            <div id="queueTables"></div>
+          </section>
+        </section>
+
+        <section id="qualityView" class="app-view">
+          <div class="summary-grid">
+            <article><span id="qualityPendingCount">0</span><p>Pendientes</p></article>
+            <article><span id="qualityReworkCount">0</span><p>En arreglos</p></article>
+            <article><span id="qualityApprovedCount">0</span><p>Aptos</p></article>
+            <article><span id="qualityRejectedCount">0</span><p>Rechazo calidad</p></article>
+          </div>
+          <div class="layout quality-grid">
+            <section class="panel"><div class="panel-heading"><h3>Pendientes por revisar</h3></div><div id="qualityPendingList" class="stack-list"></div></section>
+            <section class="panel"><div class="panel-heading"><h3>En arreglos</h3></div><div id="qualityReworkList" class="stack-list"></div></section>
+            <section class="panel"><div class="panel-heading"><h3>Aptos</h3></div><div id="qualityApprovedList" class="stack-list"></div></section>
+            <section class="panel"><div class="panel-heading"><h3>Rechazados</h3></div><div id="qualityRejectedList" class="stack-list"></div></section>
+          </div>
+        </section>
+
+        <section id="mastersView" class="app-view">
+          <div class="layout two-columns">
+            <section class="panel">
+              <div class="panel-heading"><div><p class="eyebrow">Base de datos</p><h3>Destinos</h3></div></div>
+              <form id="destinationForm" class="form-grid compact">
+                <label>Ciudad<input id="destinationCity" name="destinationCity" required /></label>
+                <label>Zona<input id="destinationZone" name="destinationZone" required /></label>
+                <button class="secondary wide" type="submit">Guardar destino</button>
+              </form>
+              <div id="destinationsTable"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-heading"><div><p class="eyebrow">Base de datos</p><h3>Transportadoras</h3></div></div>
+              <form id="carrierForm" class="form-grid compact">
+                <label>Código<input id="carrierCode" name="carrierCode" required /></label>
+                <label>Transportadora<input id="carrierName" name="carrierName" required /></label>
+                <button class="secondary wide" type="submit">Guardar transportadora</button>
+              </form>
+              <div id="carriersTable"></div>
+            </section>
+          </div>
+          <section class="panel">
+            <div class="panel-heading"><div><p class="eyebrow">Seguridad</p><h3>Usuarios</h3></div></div>
+            <form id="userForm" class="form-grid compact">
+              <label>Usuario<input id="newUsername" name="newUsername" required /></label>
+              <label>Nombre completo<input id="newFullName" name="newFullName" required /></label>
+              <label>Rol<select id="newRole" name="newRole"><option value="LOGISTICA">Logística</option><option value="CALIDAD">Calidad</option></select></label>
+              <label>Clave<input id="newPassword" name="newPassword" type="password" required /></label>
+              <button class="secondary wide" type="submit">Crear usuario</button>
+            </form>
+            <div id="usersTable"></div>
+          </section>
+        </section>
+
+        <section id="reportsView" class="app-view">
+          <div class="layout two-columns">
+            <section class="panel"><div class="panel-heading"><h3>Transportadoras con más rechazos</h3></div><div id="carrierRejectReport"></div></section>
+            <section class="panel"><div class="panel-heading"><h3>Motivos principales</h3></div><div id="reasonReport"></div></section>
+            <section class="panel"><div class="panel-heading"><h3>Compatibilidad de carga</h3></div><div id="suitabilityReport"></div></section>
+            <section class="panel"><div class="panel-heading"><h3>Decisión de calidad</h3></div><div id="qualityDecisionReport"></div></section>
+          </div>
+        </section>
+
+        <section id="settingsView" class="app-view">
+          <div class="layout two-columns">
+            <section class="panel">
+              <div class="panel-heading"><div><p class="eyebrow">GPS</p><h3>Geocerca de planta</h3></div></div>
+              <form id="siteForm" class="form-grid compact">
+                <label>Nombre sede<input id="siteName" name="siteName" required /></label>
+                <label>Radio permitido (m)<input id="siteRadiusM" name="siteRadiusM" required /></label>
+                <label>Latitud<input id="siteLat" name="siteLat" required /></label>
+                <label>Longitud<input id="siteLng" name="siteLng" required /></label>
+                <label class="wide inline-check"><input id="geofenceEnabled" name="geofenceEnabled" type="checkbox" /> Exigir GPS para registro por QR</label>
+                <button class="primary wide" type="submit">Guardar geocerca</button>
+              </form>
+            </section>
+            <section class="panel">
+              <div class="panel-heading"><div><p class="eyebrow">Implementación</p><h3>Estado del proyecto</h3></div></div>
+              <div class="bullet-cards">
+                <article><strong>Web móvil lista</strong><p>Conductores por QR y calidad desde celular ya quedan soportados por navegador.</p></article>
+                <article><strong>Android nativo</strong><p>La siguiente fase es conectar esta API a una app Kotlin/Compose para calidad.</p></article>
+                <article><strong>Render</strong><p>El proyecto quedará con archivos listos para subir a un repositorio y desplegarlo.</p></article>
+              </div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="rejectModal" class="modal hidden">
+      <form id="rejectForm" class="modal-card">
+        <p class="eyebrow">Rechazo logístico</p>
+        <h3>Motivo del rechazo</h3>
+        <p id="rejectVehicleLabel" class="muted-text"></p>
+        <label>Motivo<textarea id="rejectReason" required rows="4"></textarea></label>
+        <div class="modal-actions">
+          <button id="cancelRejectButton" class="ghost" type="button">Cancelar</button>
+          <button class="reject" type="submit">Guardar rechazo</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="qualityModal" class="modal hidden">
+      <form id="qualityForm" class="modal-card wide-modal">
+        <p class="eyebrow">Checklist de calidad</p>
+        <h3 id="qualityModalTitle">Inspección</h3>
+        <p id="qualityMeta" class="muted-text"></p>
+        <div id="qualityChecklistGrid" class="quality-form-grid"></div>
+        <div class="panel soft">
+          <label class="wide">Observación 1
+            <div class="checkbox-grid">
+              <label class="inline-check"><input type="checkbox" name="suitability" value="Cadenas" /> Cadenas</label>
+              <label class="inline-check"><input type="checkbox" name="suitability" value="Mayoristas" /> Mayoristas</label>
+              <label class="inline-check"><input type="checkbox" name="suitability" value="Bodegas y operadores" /> Bodegas y operadores</label>
+              <label class="inline-check"><input type="checkbox" name="suitability" value="Subproductos" /> Subproductos</label>
+            </div>
+          </label>
+          <label class="wide">Observaciones 2<textarea id="observationsText" rows="3"></textarea></label>
+          <label class="wide">Decisión final<select id="finalDecision" required><option value="APPROVED">Apto</option><option value="REWORK">Requiere arreglos</option><option value="REJECTED">No apto / rechazado</option></select></label>
+        </div>
+        <div class="modal-actions">
+          <button id="cancelQualityButton" class="ghost" type="button">Cancelar</button>
+          <button class="primary" type="submit">Guardar inspección</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="app.js"></script>
+  </body>
+</html>

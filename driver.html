@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Registro de conductores</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="public-body">
+    <main class="public-shell">
+      <section class="panel public-hero">
+        <img class="public-logo" src="assets/logo-logistica.png" alt="Logo Diana Logistica" />
+        <p class="eyebrow">Registro por QR</p>
+        <h1>Enturnamiento de conductores</h1>
+        <p class="muted-text">Para registrarte debes estar dentro de la planta y aceptar el GPS.</p>
+      </section>
+
+      <section class="panel">
+        <div class="gps-banner">
+          <strong id="gpsStatusTitle">GPS pendiente</strong>
+          <p id="gpsStatusText" class="muted-text">Pulsa el botón para validar que estás dentro de la planta.</p>
+          <button id="requestGpsButton" class="primary" type="button">Validar mi ubicación</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <form id="publicVehicleForm" class="form-grid">
+          <label>Placa<input id="publicPlate" required /></label>
+          <label>Transportadora<select id="publicCarrierId" required></select></label>
+          <label>Conductor<input id="publicDriverName" required /></label>
+          <label>Cédula<input id="publicDriverId" required /></label>
+          <label>Celular<input id="publicDriverPhone" required /></label>
+          <label>P. vacío (kg)<input id="publicEmptyWeightKg" required /></label>
+          <label class="wide">Destino<select id="publicDestinationId" required></select></label>
+          <button id="publicSubmitButton" class="primary wide" type="submit" disabled>Registrarme en turno</button>
+        </form>
+      </section>
+
+      <section class="panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Seguimiento</p>
+            <h2>Mi turno</h2>
+          </div>
+        </div>
+        <div id="publicTrackingCard" class="ticket-card">
+          <p class="muted-text">Cuando completes el registro aquí verás tu posición en la fila.</p>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-heading"><div><p class="eyebrow">Turnos</p><h2>Fila actual</h2></div></div>
+        <div id="publicQueueList" class="stack-list"></div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="driver.js"></script>
+  </body>
+</html>

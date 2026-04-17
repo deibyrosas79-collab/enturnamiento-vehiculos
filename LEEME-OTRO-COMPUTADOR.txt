@@ -1,0 +1,29 @@
+PARA USAR LA APLICACION EN OTRO COMPUTADOR
+
+1. Copia la carpeta completa:
+   enturnamiento-vehiculos
+
+2. Verifica que dentro exista:
+   data\enturnamiento.db
+   portable-python-lite\python.exe
+
+3. En el otro computador NO abras index.html directamente.
+   Debes abrir:
+   iniciar.bat
+
+4. Deja abierta la ventana negra del servidor.
+   Si cierras esa ventana, la aplicacion deja de conectarse a la base de datos.
+
+5. La aplicacion debe abrirse en:
+   http://localhost:8000
+
+6. Si aparece que no encuentra Python portable:
+   vuelve a copiar la carpeta completa desde el computador original,
+   incluyendo la carpeta portable-python-lite.
+
+NOTA:
+La base de datos esta en data\enturnamiento.db.
+Python portable esta en portable-python\python.exe.
+Python portable liviano esta en portable-python-lite\python.exe.
+Si copias solo index.html, app.js y styles.css,
+la aplicacion abre visualmente, pero no tendra base de datos.
