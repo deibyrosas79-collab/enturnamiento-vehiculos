@@ -28,9 +28,10 @@ PORT = int(os.environ.get("PORT", "8000"))
 SESSION_COOKIE = "ev_session"
 SESSION_HOURS = 16
 
+ROLE_ADMIN = "ADMIN"
 ROLE_LOGISTICS = "LOGISTICA"
 ROLE_QUALITY = "CALIDAD"
-VALID_ROLES = {ROLE_LOGISTICS, ROLE_QUALITY}
+VALID_ROLES = {ROLE_ADMIN, ROLE_LOGISTICS, ROLE_QUALITY}
 QUEUE_STATUS_ACTIVE = "QUEUED"
 QUEUE_STATUS_ASSIGNED = "ASSIGNED"
 QUEUE_STATUS_REJECTED = "REJECTED"
@@ -39,6 +40,10 @@ QUALITY_IN_PROGRESS = "IN_REVIEW"
 QUALITY_APPROVED = "APPROVED"
 QUALITY_REWORK = "REWORK"
 QUALITY_REJECTED = "REJECTED"
+QUEUE_GROUP_GENERAL = "GENERAL"
+QUEUE_GROUP_DIANA = "DIANA_AGRICOLA"
+DIANA_AGRICOLA_CODE = "4000801"
+LOCAL_TIMEZONE = timezone(timedelta(hours=-5))
 
 INITIAL_DESTINATIONS = [
     ("Bogota", "Cundinamarca"),
@@ -85,14 +90,15 @@ INITIAL_CARRIERS = [
 ]
 
 DEFAULT_USERS = [
+    ("admin", "Administrador General", ROLE_ADMIN, "Admin2026!"),
     ("logistica", "Logistica Principal", ROLE_LOGISTICS, "Logistica2026!"),
     ("calidad", "Inspector Calidad", ROLE_QUALITY, "Calidad2026!"),
 ]
 
 DEFAULT_SETTINGS = {
     "site_name": "Planta principal",
-    "site_lat": "",
-    "site_lng": "",
+    "site_lat": "5.286142",
+    "site_lng": "-72.402228",
     "site_radius_m": "180",
     "geofence_enabled": "1",
 }
@@ -107,6 +113,30 @@ class AppError(Exception):
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def now_local() -> datetime:
+    return datetime.now(LOCAL_TIMEZONE)
+
+
+def iso_to_local(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(LOCAL_TIMEZONE)
+
+
+def is_same_local_day(value: Optional[str], reference: Optional[datetime] = None) -> bool:
+    local_value = iso_to_local(value)
+    if not local_value:
+        return False
+    base = reference or now_local()
+    return local_value.date() == base.date()
 
 
 def create_id() -> str:
@@ -129,6 +159,14 @@ def parse_float(value: object) -> Optional[float]:
         return float(raw)
     except ValueError as exc:
         raise AppError("El valor numerico recibido no es valido.", 400) from exc
+
+
+def queue_group_for_carrier_code(carrier_code: Optional[str]) -> str:
+    return QUEUE_GROUP_DIANA if clean_text(carrier_code) == DIANA_AGRICOLA_CODE else QUEUE_GROUP_GENERAL
+
+
+def queue_group_label(queue_group: str) -> str:
+    return "Diana Agricola" if queue_group == QUEUE_GROUP_DIANA else "Otras transportadoras"
 
 
 def get_connection() -> sqlite3.Connection:
@@ -204,7 +242,7 @@ def init_db() -> None:
                 id TEXT PRIMARY KEY,
                 username TEXT NOT NULL UNIQUE,
                 full_name TEXT NOT NULL,
-                role TEXT NOT NULL CHECK(role IN ('LOGISTICA', 'CALIDAD')),
+                role TEXT NOT NULL CHECK(role IN ('ADMIN', 'LOGISTICA', 'CALIDAD')),
                 password_hash TEXT NOT NULL,
                 active INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL
@@ -243,6 +281,7 @@ def init_db() -> None:
             """
         )
         ensure_vehicle_columns(db)
+        ensure_user_roles_schema(db)
         seed_settings(db)
         seed_destinations(db)
         seed_carriers(db)
@@ -258,10 +297,12 @@ def ensure_vehicle_columns(db: sqlite3.Connection) -> None:
         "empty_weight_kg": "REAL",
         "driver_selfie_url": "TEXT",
         "driver_signature_url": "TEXT",
+        "destination_ids_json": "TEXT",
         "registration_channel": "TEXT DEFAULT 'DESK'",
         "gps_lat": "REAL",
         "gps_lng": "REAL",
         "gps_distance_m": "REAL",
+        "queue_group": f"TEXT DEFAULT '{QUEUE_GROUP_GENERAL}'",
         "quality_status": "TEXT DEFAULT 'PENDING'",
         "public_tracking_token": "TEXT",
         "last_quality_at": "TEXT",
@@ -277,8 +318,54 @@ def ensure_vehicle_columns(db: sqlite3.Connection) -> None:
         "UPDATE vehicles SET registration_channel = 'DESK' WHERE registration_channel IS NULL OR registration_channel = ''"
     )
     db.execute(
+        "UPDATE vehicles SET queue_group = ? WHERE queue_group IS NULL OR queue_group = ''",
+        (QUEUE_GROUP_GENERAL,),
+    )
+    db.execute(
+        """
+        UPDATE vehicles
+        SET destination_ids_json = json_array(destination_id)
+        WHERE (destination_ids_json IS NULL OR destination_ids_json = '')
+          AND destination_id IS NOT NULL AND destination_id != ''
+        """
+    )
+    rows = db.execute("SELECT id, carrier_code FROM vehicles").fetchall()
+    for row in rows:
+        db.execute(
+            "UPDATE vehicles SET queue_group = ? WHERE id = ?",
+            (queue_group_for_carrier_code(row["carrier_code"]), row["id"]),
+        )
+    db.execute(
         "UPDATE vehicles SET public_tracking_token = ? WHERE public_tracking_token IS NULL OR public_tracking_token = ''",
         (create_id(),),
+    )
+    compact_queue(db)
+
+
+def ensure_user_roles_schema(db: sqlite3.Connection) -> None:
+    table_sql_row = db.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'"
+    ).fetchone()
+    table_sql = (table_sql_row["sql"] or "") if table_sql_row else ""
+    if "'ADMIN'" in table_sql:
+        return
+    db.executescript(
+        """
+        ALTER TABLE users RENAME TO users_old;
+        CREATE TABLE users (
+            id TEXT PRIMARY KEY,
+            username TEXT NOT NULL UNIQUE,
+            full_name TEXT NOT NULL,
+            role TEXT NOT NULL CHECK(role IN ('ADMIN', 'LOGISTICA', 'CALIDAD')),
+            password_hash TEXT NOT NULL,
+            active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
+        );
+        INSERT INTO users (id, username, full_name, role, password_hash, active, created_at)
+        SELECT id, username, full_name, role, password_hash, active, created_at
+        FROM users_old;
+        DROP TABLE users_old;
+        """
     )
 
 
@@ -287,6 +374,10 @@ def seed_settings(db: sqlite3.Connection) -> None:
         exists = db.execute("SELECT key FROM settings WHERE key = ?", (key,)).fetchone()
         if not exists:
             db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", (key, value))
+        elif key in {"site_lat", "site_lng"}:
+            current = db.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+            if current and not clean_text(current["value"]):
+                db.execute("UPDATE settings SET value = ? WHERE key = ?", (value, key))
 
 
 def seed_destinations(db: sqlite3.Connection) -> None:
@@ -308,18 +399,20 @@ def seed_carriers(db: sqlite3.Connection) -> None:
 
 
 def seed_users(db: sqlite3.Connection) -> None:
-    if db.execute("SELECT COUNT(*) FROM users").fetchone()[0]:
-        return
-    db.executemany(
-        """
-        INSERT INTO users (id, username, full_name, role, password_hash, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        [
-            (create_id(), username, full_name, role, hash_password(password), now_iso())
-            for username, full_name, role, password in DEFAULT_USERS
-        ],
-    )
+    existing = {
+        row["username"]: row["id"]
+        for row in db.execute("SELECT id, username FROM users").fetchall()
+    }
+    for username, full_name, role, password in DEFAULT_USERS:
+        if username in existing:
+            continue
+        db.execute(
+            """
+            INSERT INTO users (id, username, full_name, role, password_hash, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (create_id(), username, full_name, role, hash_password(password), now_iso()),
+        )
 
 
 def seed_tracking_tokens(db: sqlite3.Connection) -> None:
@@ -414,6 +507,16 @@ def serialize_inspection(row: sqlite3.Row) -> Dict[str, Any]:
     }
 
 
+def load_inspections_by_vehicle(db: sqlite3.Connection) -> Dict[str, List[Dict[str, Any]]]:
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
+    rows = db.execute(
+        "SELECT * FROM quality_inspections ORDER BY reviewed_at DESC, created_at DESC"
+    ).fetchall()
+    for row in rows:
+        grouped.setdefault(row["vehicle_id"], []).append(serialize_inspection(row))
+    return grouped
+
+
 def load_latest_inspections(db: sqlite3.Connection) -> Dict[str, Dict[str, Any]]:
     inspections: Dict[str, Dict[str, Any]] = {}
     rows = db.execute(
@@ -427,20 +530,98 @@ def load_latest_inspections(db: sqlite3.Connection) -> Dict[str, Dict[str, Any]]
 
 
 def calculate_turn_positions(queued_rows: List[sqlite3.Row]) -> Dict[str, int]:
-    return {row["id"]: index for index, row in enumerate(queued_rows, start=1)}
+    positions: Dict[str, int] = {}
+    grouped_rows: Dict[str, List[sqlite3.Row]] = {
+        QUEUE_GROUP_GENERAL: [],
+        QUEUE_GROUP_DIANA: [],
+    }
+    for row in queued_rows:
+        grouped_rows.setdefault(row["queue_group"] or QUEUE_GROUP_GENERAL, []).append(row)
+    for group_rows in grouped_rows.values():
+        for index, row in enumerate(group_rows, start=1):
+            positions[row["id"]] = index
+    return positions
+
+
+def parse_destination_ids(row: sqlite3.Row) -> List[str]:
+    parsed = parse_json_field(row["destination_ids_json"], [])
+    if isinstance(parsed, list) and parsed:
+        return [clean_text(item) for item in parsed if clean_text(item)]
+    destination_id = clean_text(row["destination_id"])
+    return [destination_id] if destination_id else []
+
+
+def build_destination_lookup(destinations: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    return {item["id"]: item for item in destinations}
+
+
+def build_destination_options(row: sqlite3.Row, lookup: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+    options: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for destination_id in parse_destination_ids(row):
+        destination = lookup.get(destination_id)
+        if not destination:
+            continue
+        key = f"{destination['city']}::{destination['zone']}"
+        if key in seen:
+            continue
+        seen.add(key)
+        options.append(destination)
+    if not options and clean_text(row["city"]) and clean_text(row["zone"]):
+        options.append({"id": clean_text(row["destination_id"]), "city": row["city"], "zone": row["zone"]})
+    return options
+
+
+def build_city_turn_maps(
+    queued_rows: List[sqlite3.Row],
+    destination_lookup: Dict[str, Dict[str, Any]],
+) -> Tuple[Dict[str, Dict[str, int]], Dict[str, List[Dict[str, Any]]]]:
+    position_map: Dict[str, Dict[str, int]] = {}
+    city_lists: Dict[str, List[Dict[str, Any]]] = {}
+    counters: Dict[str, int] = {}
+    for row in queued_rows:
+        destination_options = build_destination_options(row, destination_lookup)
+        if not destination_options:
+            continue
+        for option in destination_options:
+            city_key = option["city"]
+            counters[city_key] = counters.get(city_key, 0) + 1
+            position_map.setdefault(row["id"], {})[city_key] = counters[city_key]
+            city_lists.setdefault(city_key, []).append(
+                {
+                    "vehicleId": row["id"],
+                    "plate": row["plate"],
+                    "carrier": row["carrier"],
+                    "carrierCode": row["carrier_code"],
+                    "driverName": row["driver_name"],
+                    "turnPosition": counters[city_key],
+                    "zone": option["zone"],
+                }
+            )
+    return position_map, city_lists
 
 
 def serialize_vehicle(
     row: sqlite3.Row,
     turn_positions: Dict[str, int],
     latest_inspections: Dict[str, Dict[str, Any]],
+    destination_lookup: Dict[str, Dict[str, Any]],
+    city_turn_map: Dict[str, Dict[str, int]],
 ) -> Dict[str, Any]:
+    latest_inspection = latest_inspections.get(row["id"])
+    created_local = iso_to_local(row["created_at"])
+    reviewed_local = iso_to_local(latest_inspection["reviewedAt"]) if latest_inspection else None
+    review_lead_minutes = None
+    if created_local and reviewed_local:
+        review_lead_minutes = max(int((reviewed_local - created_local).total_seconds() // 60), 0)
     return {
         "id": row["id"],
         "plate": row["plate"],
         "carrierId": row["carrier_id"],
         "carrierCode": row["carrier_code"],
         "carrier": row["carrier"],
+        "queueGroup": row["queue_group"] or queue_group_for_carrier_code(row["carrier_code"]),
+        "queueGroupLabel": queue_group_label(row["queue_group"] or queue_group_for_carrier_code(row["carrier_code"])),
         "driverName": row["driver_name"],
         "driverId": row["driver_id"],
         "driverPhone": row["driver_phone"],
@@ -448,8 +629,11 @@ def serialize_vehicle(
         "driverSelfieUrl": row["driver_selfie_url"],
         "driverSignatureUrl": row["driver_signature_url"],
         "destinationId": row["destination_id"],
+        "destinationIds": parse_destination_ids(row),
+        "destinationOptions": build_destination_options(row, destination_lookup),
         "city": row["city"],
         "zone": row["zone"],
+        "cityTurns": city_turn_map.get(row["id"], {}),
         "status": row["status"],
         "qualityStatus": row["quality_status"] or QUALITY_PENDING,
         "turnPosition": turn_positions.get(row["id"]),
@@ -463,7 +647,8 @@ def serialize_vehicle(
         "gpsDistanceM": row["gps_distance_m"],
         "publicTrackingToken": row["public_tracking_token"],
         "lastQualityAt": row["last_quality_at"],
-        "latestInspection": latest_inspections.get(row["id"]),
+        "latestInspection": latest_inspection,
+        "reviewLeadMinutes": review_lead_minutes,
     }
 
 
@@ -511,6 +696,58 @@ def build_analytics(rejected: List[Dict[str, Any]], inspections: List[Dict[str, 
     }
 
 
+def build_history_rows(
+    vehicles: List[Dict[str, Any]],
+    inspections_by_vehicle: Dict[str, List[Dict[str, Any]]],
+) -> List[Dict[str, Any]]:
+    history: List[Dict[str, Any]] = []
+    for vehicle in vehicles:
+        inspections = inspections_by_vehicle.get(vehicle["id"], [])
+        latest = inspections[0] if inspections else vehicle.get("latestInspection")
+        created_local = iso_to_local(vehicle.get("createdAt"))
+        reviewed_local = iso_to_local(latest.get("reviewedAt")) if latest else None
+        lead_minutes = vehicle.get("reviewLeadMinutes")
+        history.append(
+            {
+                "id": vehicle["id"],
+                "plate": vehicle["plate"],
+                "carrier": vehicle["carrier"],
+                "carrierCode": vehicle["carrierCode"],
+                "queueGroup": vehicle["queueGroup"],
+                "queueGroupLabel": vehicle["queueGroupLabel"],
+                "driverName": vehicle["driverName"],
+                "driverId": vehicle["driverId"],
+                "driverPhone": vehicle["driverPhone"],
+                "emptyWeightKg": vehicle["emptyWeightKg"],
+                "destinations": vehicle.get("destinationOptions", []),
+                "cityTurns": vehicle.get("cityTurns", {}),
+                "status": vehicle["status"],
+                "qualityStatus": vehicle["qualityStatus"],
+                "createdAt": vehicle["createdAt"],
+                "createdDate": created_local.strftime("%Y-%m-%d") if created_local else "",
+                "createdTime": created_local.strftime("%H:%M") if created_local else "",
+                "assignedAt": vehicle["assignedAt"],
+                "rejectedAt": vehicle["rejectedAt"],
+                "rejectionReason": vehicle["rejectionReason"],
+                "driverSelfieUrl": vehicle["driverSelfieUrl"],
+                "driverSignatureUrl": vehicle["driverSignatureUrl"],
+                "qualityReviewedAt": latest.get("reviewedAt") if latest else None,
+                "qualityReviewedDate": reviewed_local.strftime("%Y-%m-%d") if reviewed_local else "",
+                "qualityReviewedTime": reviewed_local.strftime("%H:%M") if reviewed_local else "",
+                "qualityInspectorName": latest.get("inspectorName") if latest else "",
+                "qualityDecision": latest.get("finalDecision") if latest else "",
+                "qualityChecklist": latest.get("checklist") if latest else {},
+                "qualityFindingsSummary": latest.get("findingsSummary") if latest else "",
+                "qualityObservations": latest.get("observationsText") if latest else "",
+                "reviewLeadMinutes": lead_minutes,
+                "reviewLeadLabel": f"{lead_minutes} min" if isinstance(lead_minutes, int) else "",
+                "inspectionHistory": inspections,
+            }
+        )
+    history.sort(key=lambda item: item["createdAt"], reverse=True)
+    return history
+
+
 def get_user_state(user: sqlite3.Row, origin: str) -> Dict[str, Any]:
     with get_connection() as db:
         settings = get_settings_map(db)
@@ -518,6 +755,7 @@ def get_user_state(user: sqlite3.Row, origin: str) -> Dict[str, Any]:
             serialize_destination(row)
             for row in db.execute("SELECT * FROM destinations ORDER BY zone, city").fetchall()
         ]
+        destination_lookup = build_destination_lookup(destinations)
         carriers = [
             serialize_carrier(row)
             for row in db.execute("SELECT * FROM carriers ORDER BY name").fetchall()
@@ -527,16 +765,21 @@ def get_user_state(user: sqlite3.Row, origin: str) -> Dict[str, Any]:
         ).fetchall()
         queued_rows = [row for row in vehicles if row["status"] == QUEUE_STATUS_ACTIVE]
         turn_positions = calculate_turn_positions(queued_rows)
+        city_turn_map, city_queue_lists = build_city_turn_maps(queued_rows, destination_lookup)
         latest_inspections = load_latest_inspections(db)
+        inspections_by_vehicle = load_inspections_by_vehicle(db)
 
-        queued = [serialize_vehicle(row, turn_positions, latest_inspections) for row in queued_rows]
+        queued = [
+            serialize_vehicle(row, turn_positions, latest_inspections, destination_lookup, city_turn_map)
+            for row in queued_rows
+        ]
         assigned = [
-            serialize_vehicle(row, turn_positions, latest_inspections)
+            serialize_vehicle(row, turn_positions, latest_inspections, destination_lookup, city_turn_map)
             for row in vehicles
             if row["status"] == QUEUE_STATUS_ASSIGNED
         ]
         rejected = [
-            serialize_vehicle(row, turn_positions, latest_inspections)
+            serialize_vehicle(row, turn_positions, latest_inspections, destination_lookup, city_turn_map)
             for row in vehicles
             if row["status"] == QUEUE_STATUS_REJECTED
         ]
@@ -560,10 +803,22 @@ def get_user_state(user: sqlite3.Row, origin: str) -> Dict[str, Any]:
     quality_rework = [vehicle for vehicle in queued if vehicle["qualityStatus"] == QUALITY_REWORK]
     quality_approved = [vehicle for vehicle in queued if vehicle["qualityStatus"] == QUALITY_APPROVED]
     quality_rejected = [vehicle for vehicle in rejected if vehicle["qualityStatus"] == QUALITY_REJECTED]
+    today_local = now_local()
+    approved_today = [
+        item for item in inspections
+        if item["finalDecision"] == QUALITY_APPROVED and is_same_local_day(item["reviewedAt"], today_local)
+    ]
+    rejected_today = [
+        item for item in inspections
+        if item["finalDecision"] == QUALITY_REJECTED and is_same_local_day(item["reviewedAt"], today_local)
+    ]
+    queued_general = [vehicle for vehicle in queued if vehicle["queueGroup"] == QUEUE_GROUP_GENERAL]
+    queued_diana = [vehicle for vehicle in queued if vehicle["queueGroup"] == QUEUE_GROUP_DIANA]
+    history_rows = build_history_rows(queued + assigned + rejected, inspections_by_vehicle)
     site_config = {
         "siteName": settings.get("site_name", ""),
-        "siteLat": settings.get("site_lat", ""),
-        "siteLng": settings.get("site_lng", ""),
+        "siteLat": settings.get("site_lat", DEFAULT_SETTINGS["site_lat"]),
+        "siteLng": settings.get("site_lng", DEFAULT_SETTINGS["site_lng"]),
         "siteRadiusM": settings.get("site_radius_m", "180"),
         "geofenceEnabled": settings.get("geofence_enabled", "1") == "1",
     }
@@ -580,29 +835,60 @@ def get_user_state(user: sqlite3.Row, origin: str) -> Dict[str, Any]:
         "destinations": destinations,
         "carriers": carriers,
         "queued": queued,
+        "queueGroups": {
+            "general": queued_general,
+            "dianaAgricola": queued_diana,
+        },
+        "cityQueues": [
+            {"city": city, "vehicles": rows}
+            for city, rows in sorted(city_queue_lists.items(), key=lambda item: item[0])
+        ],
         "assigned": assigned,
         "rejected": rejected,
+        "history": history_rows,
         "quality": {
             "pending": quality_pending,
             "rework": quality_rework,
             "approved": quality_approved,
             "rejected": quality_rejected,
             "inspections": inspections,
+            "dailyApprovedCount": len(approved_today),
+            "dailyRejectedCount": len(rejected_today),
         },
-        "users": users if user["role"] == ROLE_LOGISTICS else [],
+        "users": users if user["role"] == ROLE_ADMIN else [],
         "settings": site_config,
-        "analytics": build_analytics(rejected, inspections),
+        "analytics": {
+            **build_analytics(rejected, inspections),
+            "dailyApprovedCount": len(approved_today),
+            "dailyRejectedCount": len(rejected_today),
+            "queuedCount": len(queued),
+            "qualityPendingCount": len(quality_pending),
+        },
+        "permissions": {
+            "isAdmin": user["role"] == ROLE_ADMIN,
+            "canManageCatalogs": user["role"] == ROLE_ADMIN,
+            "canManageUsers": user["role"] == ROLE_ADMIN,
+            "canConfigureSite": user["role"] == ROLE_ADMIN,
+            "canOperateLogistics": user["role"] in {ROLE_ADMIN, ROLE_LOGISTICS},
+            "canOperateQuality": user["role"] in {ROLE_ADMIN, ROLE_QUALITY},
+        },
         "publicRegistrationUrl": registration_url,
         "publicQrUrl": qr_url,
     }
 
 
 def compact_queue(db: sqlite3.Connection) -> None:
-    queued = db.execute(
-        "SELECT id FROM vehicles WHERE status = 'QUEUED' ORDER BY queue_position, created_at"
-    ).fetchall()
-    for index, row in enumerate(queued, start=1):
-        db.execute("UPDATE vehicles SET queue_position = ? WHERE id = ?", (index, row["id"]))
+    for queue_group in (QUEUE_GROUP_GENERAL, QUEUE_GROUP_DIANA):
+        queued = db.execute(
+            """
+            SELECT id FROM vehicles
+            WHERE status = 'QUEUED' AND COALESCE(queue_group, ?) = ?
+            ORDER BY queue_position, created_at
+            """,
+            (QUEUE_GROUP_GENERAL, queue_group),
+        ).fetchall()
+        for index, row in enumerate(queued, start=1):
+            db.execute("UPDATE vehicles SET queue_position = ? WHERE id = ?", (index, row["id"]))
 
 
 def create_vehicle(
@@ -618,9 +904,17 @@ def create_vehicle(
     driver_id = clean_text(payload.get("driverId"))
     driver_phone = clean_text(payload.get("driverPhone"))
     destination_id = clean_text(payload.get("destinationId"))
+    destination_ids_payload = payload.get("destinationIds")
     empty_weight = parse_float(payload.get("emptyWeightKg"))
     driver_selfie_data_url = payload.get("driverSelfieDataUrl")
     driver_signature_data_url = payload.get("driverSignatureDataUrl")
+    destination_ids = [clean_text(destination_id)] if destination_id else []
+    if isinstance(destination_ids_payload, list):
+        destination_ids = [clean_text(item) for item in destination_ids_payload if clean_text(item)]
+    if destination_id and destination_id not in destination_ids:
+        destination_ids.insert(0, destination_id)
+    destination_ids = list(dict.fromkeys(destination_ids))
+    destination_id = destination_ids[0] if destination_ids else destination_id
 
     if not all([plate, carrier_id, driver_name, driver_id, driver_phone, destination_id]):
         raise AppError("Todos los campos del enturnamiento son obligatorios.", 400)
@@ -636,10 +930,20 @@ def create_vehicle(
         destination = db.execute("SELECT * FROM destinations WHERE id = ?", (destination_id,)).fetchone()
         if not destination:
             raise AppError("El destino seleccionado no existe.", 404)
+        destination_rows = []
+        if destination_ids:
+            placeholders = ",".join("?" for _ in destination_ids)
+            destination_rows = db.execute(
+                f"SELECT * FROM destinations WHERE id IN ({placeholders})",
+                destination_ids,
+            ).fetchall()
+        if len(destination_rows) != len(destination_ids):
+            raise AppError("Uno o mas destinos seleccionados no existen.", 404)
 
         carrier = db.execute("SELECT * FROM carriers WHERE id = ?", (carrier_id,)).fetchone()
         if not carrier:
             raise AppError("La transportadora seleccionada no existe.", 404)
+        queue_group = queue_group_for_carrier_code(carrier["code"])
 
         duplicate = db.execute(
             "SELECT id FROM vehicles WHERE plate = ? AND status = 'QUEUED' LIMIT 1",
@@ -649,7 +953,12 @@ def create_vehicle(
             raise AppError(f"La placa {plate} ya esta enturnada.", 409)
 
         next_position = db.execute(
-            "SELECT COALESCE(MAX(queue_position), 0) + 1 FROM vehicles WHERE status = 'QUEUED'"
+            """
+            SELECT COALESCE(MAX(queue_position), 0) + 1
+            FROM vehicles
+            WHERE status = 'QUEUED' AND COALESCE(queue_group, ?) = ?
+            """,
+            (QUEUE_GROUP_GENERAL, queue_group),
         ).fetchone()[0]
         vehicle_id = create_id()
         tracking_token = create_id()
@@ -667,10 +976,10 @@ def create_vehicle(
             """
             INSERT INTO vehicles (
                 id, plate, carrier_id, carrier_code, carrier, driver_name, driver_id, driver_phone,
-                empty_weight_kg, driver_selfie_url, driver_signature_url, destination_id, city, zone,
-                status, quality_status, queue_position, created_at, registration_channel, gps_lat, gps_lng,
+                empty_weight_kg, driver_selfie_url, driver_signature_url, destination_ids_json, destination_id, city, zone,
+                queue_group, status, quality_status, queue_position, created_at, registration_channel, gps_lat, gps_lng,
                 gps_distance_m, public_tracking_token
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'QUEUED', ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'QUEUED', ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 vehicle_id,
@@ -684,9 +993,11 @@ def create_vehicle(
                 empty_weight,
                 driver_selfie_url,
                 driver_signature_url,
+                json.dumps(destination_ids, ensure_ascii=False),
                 destination["id"],
                 destination["city"],
                 destination["zone"],
+                queue_group,
                 QUALITY_PENDING,
                 next_position,
                 now_iso(),
@@ -723,10 +1034,10 @@ def delete_destination(destination_id: str) -> None:
         destination = db.execute("SELECT id FROM destinations WHERE id = ?", (destination_id,)).fetchone()
         if not destination:
             raise AppError("El destino no existe.", 404)
-        in_use = db.execute(
-            "SELECT id FROM vehicles WHERE destination_id = ? AND status = 'QUEUED' LIMIT 1",
-            (destination_id,),
-        ).fetchone()
+        active_rows = db.execute(
+            "SELECT id, destination_id, destination_ids_json FROM vehicles WHERE status = 'QUEUED'"
+        ).fetchall()
+        in_use = any(destination_id in parse_destination_ids(row) for row in active_rows)
         if in_use:
             raise AppError("No se puede borrar un destino usado por vehiculos enturnados.", 409)
         db.execute("DELETE FROM destinations WHERE id = ?", (destination_id,))
@@ -821,8 +1132,8 @@ def reject_vehicle(vehicle_id: str, reason: str) -> None:
 
 def update_site_settings(payload: Dict[str, Any]) -> None:
     site_name = clean_text(payload.get("siteName")) or "Planta principal"
-    site_lat = clean_text(payload.get("siteLat"))
-    site_lng = clean_text(payload.get("siteLng"))
+    site_lat = clean_text(payload.get("siteLat")) or DEFAULT_SETTINGS["site_lat"]
+    site_lng = clean_text(payload.get("siteLng")) or DEFAULT_SETTINGS["site_lng"]
     radius_value = parse_float(payload.get("siteRadiusM"))
     geofence_enabled = "1" if payload.get("geofenceEnabled", True) else "0"
 
@@ -891,17 +1202,33 @@ def build_public_tracking(token: str) -> Dict[str, Any]:
         ).fetchone()
         if not vehicle:
             raise AppError("No se encontro el turno solicitado.", 404)
+        destination_lookup = build_destination_lookup(
+            [
+                serialize_destination(row)
+                for row in db.execute("SELECT * FROM destinations ORDER BY zone, city").fetchall()
+            ]
+        )
         queued_rows = db.execute(
             "SELECT * FROM vehicles WHERE status = 'QUEUED' ORDER BY queue_position, created_at"
         ).fetchall()
+        queue_group = vehicle["queue_group"] or queue_group_for_carrier_code(vehicle["carrier_code"])
+        queue_group_rows = [
+            row for row in queued_rows
+            if (row["queue_group"] or queue_group_for_carrier_code(row["carrier_code"])) == queue_group
+        ]
         turn_positions = calculate_turn_positions(queued_rows)
+        city_turn_map, _city_queue_lists = build_city_turn_maps(queued_rows, destination_lookup)
         latest_inspections = load_latest_inspections(db)
-        front_vehicle = queued_rows[0] if queued_rows else None
+        front_vehicle = queue_group_rows[0] if queue_group_rows else None
     return {
-        "vehicle": serialize_vehicle(vehicle, turn_positions, latest_inspections),
-        "queueSize": len(queued_rows),
+        "vehicle": serialize_vehicle(vehicle, turn_positions, latest_inspections, destination_lookup, city_turn_map),
+        "queueSize": len(queue_group_rows),
         "currentTurnPosition": turn_positions.get(vehicle["id"]),
-        "frontOfQueue": serialize_vehicle(front_vehicle, turn_positions, latest_inspections) if front_vehicle else None,
+        "frontOfQueue": (
+            serialize_vehicle(front_vehicle, turn_positions, latest_inspections, destination_lookup, city_turn_map)
+            if front_vehicle
+            else None
+        ),
     }
 
 
@@ -916,10 +1243,12 @@ def get_public_config(origin: str) -> Dict[str, Any]:
             serialize_destination(row)
             for row in db.execute("SELECT * FROM destinations ORDER BY zone, city").fetchall()
         ]
+        destination_lookup = build_destination_lookup(destinations)
         queued_rows = db.execute(
             "SELECT * FROM vehicles WHERE status = 'QUEUED' ORDER BY queue_position, created_at"
         ).fetchall()
         turn_positions = calculate_turn_positions(queued_rows)
+        city_turn_map, city_queue_lists = build_city_turn_maps(queued_rows, destination_lookup)
         latest_inspections = load_latest_inspections(db)
     return {
         "siteName": settings.get("site_name", ""),
@@ -929,8 +1258,14 @@ def get_public_config(origin: str) -> Dict[str, Any]:
         "registrationUrl": f"{origin}/driver.html",
         "carriers": carriers,
         "destinations": destinations,
+        "defaultSiteLat": settings.get("site_lat", DEFAULT_SETTINGS["site_lat"]),
+        "defaultSiteLng": settings.get("site_lng", DEFAULT_SETTINGS["site_lng"]),
+        "cityQueues": [
+            {"city": city, "vehicles": rows}
+            for city, rows in sorted(city_queue_lists.items(), key=lambda item: item[0])
+        ],
         "liveQueue": [
-            serialize_vehicle(row, turn_positions, latest_inspections)
+            serialize_vehicle(row, turn_positions, latest_inspections, destination_lookup, city_turn_map)
             for row in queued_rows[:12]
         ],
     }
@@ -1109,45 +1444,45 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if parsed.path == "/api/settings/site":
-                self.require_role(user, ROLE_LOGISTICS)
+                self.require_role(user, ROLE_ADMIN)
                 update_site_settings(payload)
                 self.send_json(get_user_state(user, self.request_origin()))
                 return
             if parsed.path == "/api/destinations":
-                self.require_role(user, ROLE_LOGISTICS)
+                self.require_role(user, ROLE_ADMIN)
                 add_destination(payload)
                 self.send_json(get_user_state(user, self.request_origin()), 201)
                 return
             if parsed.path == "/api/carriers":
-                self.require_role(user, ROLE_LOGISTICS)
+                self.require_role(user, ROLE_ADMIN)
                 add_carrier(payload)
                 self.send_json(get_user_state(user, self.request_origin()), 201)
                 return
             if parsed.path == "/api/users":
-                self.require_role(user, ROLE_LOGISTICS)
+                self.require_role(user, ROLE_ADMIN)
                 add_user(payload)
                 self.send_json(get_user_state(user, self.request_origin()), 201)
                 return
             if parsed.path == "/api/vehicles":
-                self.require_role(user, ROLE_LOGISTICS)
+                self.require_any_role(user, {ROLE_ADMIN, ROLE_LOGISTICS})
                 create_vehicle(payload, "DESK", None, None, None)
                 self.send_json(get_user_state(user, self.request_origin()), 201)
                 return
 
             vehicle_id, action = parse_vehicle_action(parsed.path)
             if action == "assign":
-                self.require_role(user, ROLE_LOGISTICS)
+                self.require_any_role(user, {ROLE_ADMIN, ROLE_LOGISTICS})
                 assign_vehicle(vehicle_id)
                 self.send_json(get_user_state(user, self.request_origin()))
                 return
             if action == "reject":
-                self.require_role(user, ROLE_LOGISTICS)
+                self.require_any_role(user, {ROLE_ADMIN, ROLE_LOGISTICS})
                 reject_vehicle(vehicle_id, clean_text(payload.get("reason")))
                 self.send_json(get_user_state(user, self.request_origin()))
                 return
 
             if parsed.path.startswith("/api/quality/") and parsed.path.endswith("/inspect"):
-                self.require_role(user, ROLE_QUALITY)
+                self.require_any_role(user, {ROLE_ADMIN, ROLE_QUALITY})
                 quality_vehicle_id = parsed.path.split("/")[3]
                 save_quality_inspection(quality_vehicle_id, user, payload)
                 self.send_json(get_user_state(self.get_fresh_user(user["id"]), self.request_origin()))
@@ -1165,7 +1500,7 @@ class Handler(BaseHTTPRequestHandler):
             user = self.require_user()
             if not user:
                 return
-            self.require_role(user, ROLE_LOGISTICS)
+            self.require_role(user, ROLE_ADMIN)
 
             destination_id = parse_entity_delete(parsed.path, "destinations")
             if destination_id:
@@ -1228,6 +1563,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def require_role(self, user: sqlite3.Row, role: str) -> None:
         if user["role"] != role:
+            raise AppError("No tienes permisos para esta accion.", 403)
+
+    def require_any_role(self, user: sqlite3.Row, roles: set[str]) -> None:
+        if user["role"] not in roles:
             raise AppError("No tienes permisos para esta accion.", 403)
 
     def get_fresh_user(self, user_id: str) -> sqlite3.Row:

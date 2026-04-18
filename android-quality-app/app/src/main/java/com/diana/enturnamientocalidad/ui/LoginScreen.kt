@@ -24,10 +24,13 @@ import androidx.compose.material.icons.outlined.AdminPanelSettings
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Login
 import androidx.compose.material.icons.outlined.PersonOutline
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -61,6 +64,7 @@ fun LoginScreen(
 ) {
     var username by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
+    var showPassword by rememberSaveable { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -208,7 +212,15 @@ fun LoginScreen(
                                 Icon(Icons.Outlined.Key, contentDescription = null)
                             },
                             singleLine = true,
-                            visualTransformation = PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(onClick = { showPassword = !showPassword }) {
+                                    Icon(
+                                        imageVector = if (showPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                        contentDescription = if (showPassword) "Ocultar clave" else "Mostrar clave",
+                                    )
+                                }
+                            },
+                            visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
                             keyboardOptions = KeyboardOptions(
                                 keyboardType = KeyboardType.Password,
                                 imeAction = ImeAction.Done,
@@ -293,6 +305,7 @@ private fun AppTextField(
     onValueChange: (String) -> Unit,
     label: String,
     leadingIcon: @Composable (() -> Unit)? = null,
+    trailingIcon: @Composable (() -> Unit)? = null,
     singleLine: Boolean = true,
     visualTransformation: VisualTransformation = VisualTransformation.None,
     keyboardOptions: KeyboardOptions,
@@ -303,6 +316,7 @@ private fun AppTextField(
         modifier = Modifier.fillMaxWidth(),
         label = { Text(label) },
         leadingIcon = leadingIcon,
+        trailingIcon = trailingIcon,
         singleLine = singleLine,
         shape = RoundedCornerShape(18.dp),
         visualTransformation = visualTransformation,

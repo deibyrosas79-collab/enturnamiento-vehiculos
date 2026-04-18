@@ -1,7 +1,8 @@
-const API_BASE = window.location.protocol === "file:" ? "http://localhost:8000/api" : "/api";
+﻿const API_BASE = window.location.protocol === "file:" ? "http://localhost:8000/api" : "/api";
 
 const state = {
   gps: null,
+  config: null,
   trackingToken: localStorage.getItem("driver_tracking_token") || "",
   driverSelfieDataUrl: "",
   signatureDataUrl: "",
@@ -23,6 +24,7 @@ const elements = {
   publicSubmitButton: document.querySelector("#publicSubmitButton"),
   publicTrackingCard: document.querySelector("#publicTrackingCard"),
   publicQueueList: document.querySelector("#publicQueueList"),
+  publicCityQueues: document.querySelector("#publicCityQueues"),
   toast: document.querySelector("#toast"),
 };
 
@@ -35,7 +37,11 @@ bootstrap();
 function bootstrap() {
   elements.requestGpsButton.addEventListener("click", requestGps);
   elements.publicVehicleForm.addEventListener("submit", submitPublicRegistration);
-  elements.publicVehicleForm.addEventListener("input", updateSubmitState);
+  elements.publicVehicleForm.addEventListener("input", () => {
+    updateSubmitState();
+    renderQueue(state.config?.liveQueue || []);
+    renderCityQueues(state.config?.cityQueues || []);
+  });
   elements.publicSelfieInput.addEventListener("change", handleSelfieChange);
   elements.clearSignatureButton.addEventListener("click", clearSignature);
   setupSignaturePad();
@@ -51,11 +57,13 @@ function bootstrap() {
 async function loadConfig() {
   try {
     const data = await request("/public/config");
+    state.config = data;
     populateSelect(elements.publicCarrierId, data.carriers, "Selecciona transportadora", (item) => `${item.code} - ${item.name}`);
-    populateSelect(elements.publicDestinationId, data.destinations, "Selecciona destino", (item) => `${item.city} - ${item.zone}`);
+    populateMultiSelect(elements.publicDestinationId, data.destinations, (item) => `${item.city} - ${item.zone}`);
     renderQueue(data.liveQueue || []);
+    renderCityQueues(data.cityQueues || []);
     if (!data.siteConfigured) {
-      setGpsStatus("Geocerca sin configurar", "Logística debe configurar la ubicación de planta antes de usar el registro por QR.");
+      setGpsStatus("Geocerca sin configurar", "Logistica debe configurar la ubicacion de planta antes de usar el registro por QR.");
     }
   } catch (error) {
     showToast(error.message);
@@ -65,7 +73,9 @@ async function loadConfig() {
 async function loadQueueOnly() {
   try {
     const data = await request("/public/config");
+    state.config = data;
     renderQueue(data.liveQueue || []);
+    renderCityQueues(data.cityQueues || []);
   } catch {}
 }
 
@@ -75,24 +85,34 @@ function populateSelect(select, rows, placeholder, formatter) {
   rows.forEach((row) => select.append(new Option(formatter(row), row.id)));
 }
 
+function populateMultiSelect(select, rows, formatter) {
+  const selectedValues = new Set(Array.from(select.selectedOptions || []).map((option) => option.value));
+  select.innerHTML = "";
+  rows.forEach((row) => {
+    const option = new Option(formatter(row), row.id);
+    option.selected = selectedValues.has(row.id);
+    select.append(option);
+  });
+}
+
 function requestGps() {
   if (!navigator.geolocation) {
-    setGpsStatus("GPS no disponible", "Este dispositivo no soporta geolocalización.");
+    setGpsStatus("GPS no disponible", "Este dispositivo no soporta geolocalizacion.");
     return;
   }
-  setGpsStatus("Validando ubicación", "Espera unos segundos mientras se confirma tu posición.");
+  setGpsStatus("Validando ubicacion", "Espera unos segundos mientras se confirma tu posicion.");
   navigator.geolocation.getCurrentPosition(
     (position) => {
       state.gps = {
         lat: position.coords.latitude,
         lng: position.coords.longitude,
       };
-      setGpsStatus("Ubicación lista", "Ahora puedes registrarte en el turno.");
+      setGpsStatus("Ubicacion lista", "Ahora puedes registrarte en el turno.");
       updateSubmitState();
     },
     (error) => {
       state.gps = null;
-      setGpsStatus("GPS bloqueado", `No se pudo obtener tu ubicación: ${error.message}`);
+      setGpsStatus("GPS bloqueado", `No se pudo obtener tu ubicacion: ${error.message}`);
       updateSubmitState();
     },
     { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
@@ -113,6 +133,11 @@ async function submitPublicRegistration(event) {
     showToast("Debes firmar en pantalla antes de registrarte.");
     return;
   }
+  const destinationIds = selectedDestinationIds();
+  if (!destinationIds.length) {
+    showToast("Debes seleccionar al menos un destino.");
+    return;
+  }
   const payload = {
     plate: document.querySelector("#publicPlate").value,
     carrierId: elements.publicCarrierId.value,
@@ -120,7 +145,8 @@ async function submitPublicRegistration(event) {
     driverId: document.querySelector("#publicDriverId").value,
     driverPhone: document.querySelector("#publicDriverPhone").value,
     emptyWeightKg: document.querySelector("#publicEmptyWeightKg").value,
-    destinationId: elements.publicDestinationId.value,
+    destinationId: destinationIds[0],
+    destinationIds,
     gpsLat: state.gps.lat,
     gpsLng: state.gps.lng,
     driverSelfieDataUrl: state.driverSelfieDataUrl,
@@ -131,6 +157,7 @@ async function submitPublicRegistration(event) {
     state.trackingToken = data.vehicle.publicTrackingToken;
     localStorage.setItem("driver_tracking_token", state.trackingToken);
     elements.publicVehicleForm.reset();
+    Array.from(elements.publicDestinationId.options).forEach((option) => { option.selected = false; });
     resetRegistrationMedia();
     await loadQueueOnly();
     renderTracking(data);
@@ -153,40 +180,81 @@ function renderTracking(data) {
   elements.publicTrackingCard.innerHTML = `
     <h3>${vehicle.plate}</h3>
     <p><strong>Turno actual:</strong> ${vehicle.turnPosition || "-"}</p>
-    <p><strong>Estado logística:</strong> ${translateLogisticsStatus(vehicle.status)}</p>
+    <p><strong>Cola:</strong> ${vehicle.queueGroupLabel || "-"}</p>
+    <p><strong>Estado logistica:</strong> ${translateLogisticsStatus(vehicle.status)}</p>
     <p><strong>Estado calidad:</strong> ${translateQualityStatus(vehicle.qualityStatus)}</p>
     <p><strong>Transportadora:</strong> ${vehicle.carrier}</p>
-    <p><strong>Destino:</strong> ${vehicle.city} - ${vehicle.zone}</p>
+    <p><strong>Destinos:</strong> ${renderDestinationsText(vehicle)}</p>
     <p><strong>Selfie:</strong> ${vehicle.driverSelfieUrl ? `<a href="${encodeURI(vehicle.driverSelfieUrl)}" target="_blank" rel="noopener noreferrer">Ver registro</a>` : "Pendiente"}</p>
     <p><strong>Firma:</strong> ${vehicle.driverSignatureUrl ? `<a href="${encodeURI(vehicle.driverSignatureUrl)}" target="_blank" rel="noopener noreferrer">Ver firma</a>` : "Pendiente"}</p>
     <p><strong>Al frente de la fila:</strong> ${data.frontOfQueue ? data.frontOfQueue.plate : "Sin fila"}</p>
-    <p class="muted-text">Actualiza automáticamente cada 20 segundos.</p>
+    <p class="muted-text">Actualiza automaticamente cada 20 segundos.</p>
   `;
+  renderQueue(state.config?.liveQueue || [], vehicle.queueGroup);
+  renderCityQueues(state.config?.cityQueues || [], vehicle.queueGroup);
 }
 
-function renderQueue(rows) {
-  if (!rows.length) {
-    elements.publicQueueList.innerHTML = `<div class="empty">Todavía no hay vehículos en fila.</div>`;
+function renderQueue(rows, forcedGroup = null) {
+  const activeGroup = forcedGroup || selectedQueueGroup();
+  const visibleRows = activeGroup ? rows.filter((row) => row.queueGroup === activeGroup) : rows;
+  if (!visibleRows.length) {
+    elements.publicQueueList.innerHTML = `<div class="empty">Todavia no hay vehiculos en fila para esta cola.</div>`;
     return;
   }
-  elements.publicQueueList.innerHTML = rows.map((row) => `
+  elements.publicQueueList.innerHTML = visibleRows.map((row) => `
     <article class="vehicle-card">
       <h4>${row.plate}</h4>
       <div class="vehicle-meta">
         <span><strong>Turno:</strong> ${row.turnPosition || "-"}</span>
+        <span><strong>Cola:</strong> ${row.queueGroupLabel || "-"}</span>
         <span><strong>Transportadora:</strong> ${row.carrier}</span>
-        <span><strong>Destino:</strong> ${row.city} - ${row.zone}</span>
+        <span><strong>Destinos:</strong> ${renderDestinationsText(row)}</span>
         <span><strong>Calidad:</strong> ${translateQualityStatus(row.qualityStatus)}</span>
       </div>
     </article>
   `).join("");
 }
 
+function renderCityQueues(cityQueues, forcedGroup = null) {
+  const activeGroup = forcedGroup || selectedQueueGroup();
+  const html = cityQueues.map((group) => {
+    const vehicles = activeGroup ? (group.vehicles || []).filter((row) => row.queueGroup === activeGroup) : (group.vehicles || []);
+    if (!vehicles.length) {
+      return `
+        <section class="panel soft">
+          <div class="panel-heading"><div><h3>${group.city}</h3><p>Sin vehiculos visibles para esta ciudad.</p></div></div>
+        </section>
+      `;
+    }
+    return `
+      <section class="panel soft">
+        <div class="panel-heading"><div><h3>${group.city}</h3><p>Turnos visibles para esta ciudad.</p></div></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Turno</th><th>Placa</th><th>Transportadora</th><th>Cola</th></tr></thead>
+            <tbody>
+              ${vehicles.map((row) => `
+                <tr>
+                  <td>${row.cityTurns?.[group.city] ? `<span class="turn">${row.cityTurns[group.city]}</span>` : "-"}</td>
+                  <td>${row.plate}</td>
+                  <td>${row.carrier}</td>
+                  <td>${row.queueGroupLabel || "-"}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    `;
+  }).join("");
+  elements.publicCityQueues.innerHTML = html || `<div class="empty">No hay ciudades configuradas.</div>`;
+}
+
 async function handleSelfieChange(event) {
   const [file] = Array.from(event.target.files || []);
   if (!file) {
     state.driverSelfieDataUrl = "";
-    elements.publicSelfiePreview.innerHTML = `<span class="muted-text">Aquí verás la selfie antes de enviar el registro.</span>`;
+    elements.publicSelfiePreview.innerHTML = `<span class="muted-text">Aqui veras la selfie antes de enviar el registro.</span>`;
     updateSubmitState();
     return;
   }
@@ -205,7 +273,6 @@ function setupSignaturePad() {
   signatureContext = elements.signatureCanvas.getContext("2d");
   resizeSignatureCanvas();
   window.addEventListener("resize", resizeSignatureCanvas);
-
   elements.signatureCanvas.addEventListener("pointerdown", startSignature);
   elements.signatureCanvas.addEventListener("pointermove", moveSignature);
   elements.signatureCanvas.addEventListener("pointerup", endSignature);
@@ -258,10 +325,7 @@ function endSignature() {
 
 function getCanvasPoint(event) {
   const bounds = elements.signatureCanvas.getBoundingClientRect();
-  return {
-    x: event.clientX - bounds.left,
-    y: event.clientY - bounds.top,
-  };
+  return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
 }
 
 function clearSignatureCanvas() {
@@ -285,10 +349,10 @@ function resetRegistrationMedia() {
   state.signatureHasDrawn = false;
   state.gps = null;
   elements.publicSelfieInput.value = "";
-  elements.publicSelfiePreview.innerHTML = `<span class="muted-text">Aquí verás la selfie antes de enviar el registro.</span>`;
+  elements.publicSelfiePreview.innerHTML = `<span class="muted-text">Aqui veras la selfie antes de enviar el registro.</span>`;
   clearSignatureCanvas();
   elements.signatureStatus.textContent = "Firma pendiente.";
-  setGpsStatus("GPS requerido", "Debes permitir ubicación para validar que estás dentro de planta.");
+  setGpsStatus("GPS requerido", "Debes permitir ubicacion para validar que estas dentro de planta.");
   updateSubmitState();
 }
 
@@ -300,9 +364,26 @@ function updateSubmitState() {
     Boolean(document.querySelector("#publicDriverId").value.trim()) &&
     Boolean(document.querySelector("#publicDriverPhone").value.trim()) &&
     Boolean(document.querySelector("#publicEmptyWeightKg").value.trim()) &&
-    Boolean(elements.publicDestinationId.value);
+    selectedDestinationIds().length > 0;
   const canSubmit = formReady && Boolean(state.gps) && Boolean(state.driverSelfieDataUrl) && Boolean(state.signatureDataUrl);
   elements.publicSubmitButton.disabled = !canSubmit;
+}
+
+function selectedDestinationIds() {
+  return Array.from(elements.publicDestinationId.selectedOptions).map((option) => option.value).filter(Boolean);
+}
+
+function selectedQueueGroup() {
+  const carrier = state.config?.carriers?.find((item) => item.id === elements.publicCarrierId.value);
+  if (!carrier) return null;
+  return carrier.code === "4000801" ? "DIANA_AGRICOLA" : "GENERAL";
+}
+
+function renderDestinationsText(item) {
+  const options = Array.isArray(item.destinationOptions) && item.destinationOptions.length
+    ? item.destinationOptions.map((option) => `${option.city} - ${option.zone}`)
+    : [`${item.city || ""}${item.zone ? ` - ${item.zone}` : ""}`.trim()];
+  return options.filter(Boolean).join(", ");
 }
 
 function translateLogisticsStatus(status) {
@@ -316,7 +397,7 @@ function translateLogisticsStatus(status) {
 function translateQualityStatus(status) {
   return {
     PENDING: "Pendiente",
-    IN_REVIEW: "En revisión",
+    IN_REVIEW: "En revision",
     APPROVED: "Apto",
     REWORK: "Requiere arreglos",
     REJECTED: "Rechazado",

@@ -1,3 +1,4 @@
+﻿
 const API_BASE = window.location.protocol === "file:" ? "http://localhost:8000/api" : "/api";
 
 const CHECKLIST_ITEMS = [
@@ -29,6 +30,7 @@ const elements = {
   loginForm: document.querySelector("#loginForm"),
   logoutButton: document.querySelector("#logoutButton"),
   openPublicPageButton: document.querySelector("#openPublicPageButton"),
+  refreshButton: document.querySelector("#refreshButton"),
   welcomeText: document.querySelector("#welcomeText"),
   roleText: document.querySelector("#roleText"),
   navTabs: document.querySelectorAll(".nav-tab"),
@@ -37,7 +39,10 @@ const elements = {
   carrierSelect: document.querySelector("#carrierId"),
   destinationSelect: document.querySelector("#destinationId"),
   searchInput: document.querySelector("#searchInput"),
+  historySearchInput: document.querySelector("#historySearchInput"),
   queueTables: document.querySelector("#queueTables"),
+  cityQueueTables: document.querySelector("#cityQueueTables"),
+  historyTable: document.querySelector("#historyTable"),
   queueTabs: document.querySelectorAll("[data-queue-tab]"),
   destinationForm: document.querySelector("#destinationForm"),
   carrierForm: document.querySelector("#carrierForm"),
@@ -46,6 +51,8 @@ const elements = {
   destinationsTable: document.querySelector("#destinationsTable"),
   carriersTable: document.querySelector("#carriersTable"),
   usersTable: document.querySelector("#usersTable"),
+  usersSection: document.querySelector("#usersSection"),
+  catalogsSection: document.querySelector("#catalogsSection"),
   publicRegistrationUrl: document.querySelector("#publicRegistrationUrl"),
   publicQrImage: document.querySelector("#publicQrImage"),
   countQueued: document.querySelector("#countQueued"),
@@ -98,13 +105,28 @@ function bootstrap() {
 function bindEvents() {
   elements.loginForm.addEventListener("submit", submitLogin);
   elements.logoutButton.addEventListener("click", logout);
-  elements.openPublicPageButton.addEventListener("click", () => window.open("/driver.html", "_blank"));
+  elements.openPublicPageButton.addEventListener("click", () => {
+    const url = state.appState?.publicRegistrationUrl || "/driver.html";
+    window.open(url, "_blank", "noopener");
+  });
+  elements.refreshButton.addEventListener("click", async () => {
+    try {
+      await refreshAppState();
+      showToast("Información actualizada.");
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
   elements.vehicleForm.addEventListener("submit", submitVehicle);
   elements.destinationForm.addEventListener("submit", submitDestination);
   elements.carrierForm.addEventListener("submit", submitCarrier);
   elements.userForm.addEventListener("submit", submitUser);
   elements.siteForm.addEventListener("submit", submitSiteConfig);
-  elements.searchInput.addEventListener("input", renderQueueTables);
+  elements.searchInput.addEventListener("input", () => {
+    renderQueueTables();
+    renderCityQueues();
+  });
+  elements.historySearchInput.addEventListener("input", renderHistoryTable);
   elements.rejectForm.addEventListener("submit", submitRejectVehicle);
   elements.cancelRejectButton.addEventListener("click", closeRejectModal);
   elements.qualityForm.addEventListener("submit", submitQualityInspection);
@@ -190,44 +212,78 @@ function switchQueueTab(tabName) {
 
 function renderApp() {
   if (!state.appState) return;
-  const { user, queued, rejected, quality, settings, destinations, carriers, users, analytics } = state.appState;
+  const {
+    user,
+    queued,
+    quality,
+    settings,
+    destinations,
+    carriers,
+    users,
+    analytics,
+    permissions,
+  } = state.appState;
   elements.welcomeText.textContent = `Hola, ${user.fullName}`;
-  elements.roleText.textContent = `Rol activo: ${user.role}`;
-  applyRoleVisibility(user.role);
-  switchView(user.role === "CALIDAD" ? "quality" : state.currentView);
+  elements.roleText.textContent = `Rol activo: ${translateRole(user.role)}`;
+  applyRoleVisibility(permissions);
+  switchView(getFirstAllowedView(user.role === "CALIDAD" ? "quality" : state.currentView, permissions));
   populateSelect(elements.carrierSelect, carriers, "Selecciona transportadora", (item) => `${item.code} - ${item.name}`);
-  populateSelect(elements.destinationSelect, destinations, "Selecciona destino", (item) => `${item.city} - ${item.zone}`);
+  populateMultiSelect(elements.destinationSelect, destinations, (item) => `${item.city} - ${item.zone}`);
   elements.publicRegistrationUrl.value = state.appState.publicRegistrationUrl;
   elements.publicQrImage.src = state.appState.publicQrUrl;
-  elements.countQueued.textContent = queued.length;
-  elements.countQualityPending.textContent = quality.pending.length;
-  elements.countQualityApproved.textContent = quality.approved.length;
-  elements.countRejected.textContent = rejected.length;
+  elements.countQueued.textContent = analytics.queuedCount ?? queued.length;
+  elements.countQualityPending.textContent = analytics.qualityPendingCount ?? quality.pending.length;
+  elements.countQualityApproved.textContent = analytics.dailyApprovedCount ?? quality.dailyApprovedCount ?? 0;
+  elements.countRejected.textContent = analytics.dailyRejectedCount ?? quality.dailyRejectedCount ?? 0;
   elements.qualityPendingCount.textContent = quality.pending.length;
   elements.qualityReworkCount.textContent = quality.rework.length;
-  elements.qualityApprovedCount.textContent = quality.approved.length;
-  elements.qualityRejectedCount.textContent = quality.rejected.length;
-  elements.siteName.value = settings.siteName;
-  elements.siteLat.value = settings.siteLat;
-  elements.siteLng.value = settings.siteLng;
-  elements.siteRadiusM.value = settings.siteRadiusM;
+  elements.qualityApprovedCount.textContent = quality.dailyApprovedCount ?? 0;
+  elements.qualityRejectedCount.textContent = quality.dailyRejectedCount ?? 0;
+  elements.siteName.value = settings.siteName || "Planta principal";
+  elements.siteLat.value = settings.siteLat || "5.286142";
+  elements.siteLng.value = settings.siteLng || "-72.402228";
+  elements.siteRadiusM.value = settings.siteRadiusM || "180";
   elements.geofenceEnabled.checked = settings.geofenceEnabled;
 
   renderQueueTables();
-  renderMastersTables(destinations, carriers, users);
+  renderCityQueues();
+  renderMastersTables(destinations, carriers, users, permissions);
   renderQualityLists();
+  renderHistoryTable();
   renderReport(elements.carrierRejectReport, analytics.rejectedByCarrier, "No hay rechazos por transportadora.");
   renderReport(elements.reasonReport, analytics.topRejectionReasons, "No hay motivos registrados.");
   renderReport(elements.suitabilityReport, analytics.suitabilityCounts, "Sin datos de compatibilidad.");
   renderReport(elements.qualityDecisionReport, analytics.qualityDecisionCounts, "Sin decisiones de calidad.");
 }
 
-function applyRoleVisibility(role) {
-  const logisticsOnly = ["dashboard", "masters", "reports", "settings"];
+function applyRoleVisibility(permissions) {
+  const visibleMap = {
+    dashboard: Boolean(permissions?.canOperateLogistics),
+    quality: Boolean(permissions?.canOperateQuality),
+    history: true,
+    masters: Boolean(permissions?.canManageCatalogs || permissions?.canManageUsers),
+    reports: true,
+    settings: Boolean(permissions?.canConfigureSite),
+  };
   elements.navTabs.forEach((button) => {
-    const restricted = logisticsOnly.includes(button.dataset.view);
-    button.classList.toggle("hidden", role === "CALIDAD" && restricted);
+    button.classList.toggle("hidden", !visibleMap[button.dataset.view]);
   });
+  elements.vehicleForm.closest(".panel")?.classList.toggle("hidden", !permissions?.canOperateLogistics);
+  elements.catalogsSection?.classList.toggle("hidden", !permissions?.canManageCatalogs);
+  elements.usersSection?.classList.toggle("hidden", !permissions?.canManageUsers);
+  elements.siteForm.closest(".panel")?.classList.toggle("hidden", !permissions?.canConfigureSite);
+}
+
+function getFirstAllowedView(preferredView, permissions) {
+  const allowedViews = [
+    { view: "dashboard", ok: Boolean(permissions?.canOperateLogistics) },
+    { view: "quality", ok: Boolean(permissions?.canOperateQuality) },
+    { view: "history", ok: true },
+    { view: "reports", ok: true },
+    { view: "masters", ok: Boolean(permissions?.canManageCatalogs || permissions?.canManageUsers) },
+    { view: "settings", ok: Boolean(permissions?.canConfigureSite) },
+  ].filter((item) => item.ok);
+  return allowedViews.find((item) => item.view === preferredView)?.view || allowedViews[0]?.view || "history";
 }
 
 function populateSelect(select, rows, placeholder, formatter) {
@@ -241,59 +297,98 @@ function populateSelect(select, rows, placeholder, formatter) {
   });
 }
 
+function populateMultiSelect(select, rows, formatter) {
+  const selectedValues = new Set(Array.from(select.selectedOptions || []).map((option) => option.value));
+  select.innerHTML = "";
+  rows.forEach((row) => {
+    const option = new Option(formatter(row), row.id);
+    option.selected = selectedValues.has(row.id);
+    select.append(option);
+  });
+}
+
 function renderQueueTables() {
   if (!state.appState) return;
-  const rows = filterVehicles(state.appState[state.queueTab]);
-  const columns = {
-    queued: [
-      ["Turno", (item) => item.turnPosition ? `<span class="turn">${item.turnPosition}</span>` : ""],
-      ["Placa", (item) => item.plate],
-      ["Transportadora", (item) => `${item.carrierCode || ""} ${item.carrier}`.trim()],
-      ["Conductor", (item) => item.driverName],
-      ["Celular", (item) => item.driverPhone || ""],
+  if (state.queueTab === "queued") {
+    const generalRows = filterVehicles(state.appState.queueGroups?.general || []);
+    const dianaRows = filterVehicles(state.appState.queueGroups?.dianaAgricola || []);
+    const columns = [
+      ["Turno", (item) => item.turnPosition ? `<span class="turn">${item.turnPosition}</span>` : "-"],
+      ["Cola", (item) => escapeHtml(item.queueGroupLabel || "-")],
+      ["Placa", (item) => escapeHtml(item.plate)],
+      ["Transportadora", (item) => escapeHtml(`${item.carrierCode || ""} - ${item.carrier}`.replace(/^ - /, ""))],
+      ["Conductor", (item) => escapeHtml(item.driverName)],
+      ["Celular", (item) => escapeHtml(item.driverPhone || "")],
       ["P. vacío (kg)", (item) => formatNumber(item.emptyWeightKg)],
-      ["Destino", (item) => `${item.city} - ${item.zone}`],
+      ["Destinos", renderDestinations],
+      ["Turnos por ciudad", renderCityTurns],
       ["Calidad", (item) => qualityBadge(item.qualityStatus)],
-      ["Canal", (item) => `<span class="badge channel">${item.registrationChannel}</span>`],
+      ["Canal", (item) => `<span class="badge channel">${escapeHtml(item.registrationChannel || "DESK")}</span>`],
       ["Soportes", renderVehicleSupports],
       ["Ingreso", (item) => formatDate(item.createdAt)],
+      ["Espera a calidad", (item) => escapeHtml(item.reviewLeadLabel || "Pendiente")],
       ["Acciones", renderQueueActions],
-    ],
-    assigned: [
-      ["#", (_item, index) => index + 1],
-      ["Placa", (item) => item.plate],
-      ["Transportadora", (item) => item.carrier],
-      ["Conductor", (item) => item.driverName],
-      ["Celular", (item) => item.driverPhone || ""],
-      ["P. vacío (kg)", (item) => formatNumber(item.emptyWeightKg)],
-      ["Destino", (item) => `${item.city} - ${item.zone}`],
-      ["Soportes", renderVehicleSupports],
-      ["Ingreso", (item) => formatDate(item.createdAt)],
-      ["Asignado", (item) => formatDate(item.assignedAt)],
-    ],
-    rejected: [
-      ["#", (_item, index) => index + 1],
-      ["Placa", (item) => item.plate],
-      ["Transportadora", (item) => item.carrier],
-      ["Conductor", (item) => item.driverName],
-      ["Celular", (item) => item.driverPhone || ""],
-      ["Destino", (item) => `${item.city} - ${item.zone}`],
-      ["Calidad", (item) => qualityBadge(item.qualityStatus)],
-      ["Soportes", renderVehicleSupports],
-      ["Motivo", (item) => item.rejectionReason || "No informado"],
-      ["Rechazado", (item) => formatDate(item.rejectedAt)],
-    ],
-  }[state.queueTab];
+    ];
+    elements.queueTables.innerHTML = [
+      renderNamedTable(
+        "Fila general de transportadoras",
+        "Aquí continúan todas las transportadoras diferentes de 4000801 - DIANA AGRICOLA S.A.S.",
+        renderTable(columns, generalRows, "No hay vehículos en la fila general."),
+      ),
+      renderNamedTable(
+        "Fila paralela DIANA AGRICOLA S.A.S",
+        "Esta fila es exclusiva para la transportadora 4000801 - DIANA AGRICOLA S.A.S.",
+        renderTable(columns, dianaRows, "No hay vehículos en la fila paralela de Diana Agrícola."),
+      ),
+    ].join("");
+    bindQueueActions();
+    return;
+  }
 
-  elements.queueTables.innerHTML = renderTable(columns, rows, `No hay registros en ${state.queueTab}.`);
+  const rows = filterVehicles(state.appState[state.queueTab]);
+  const columns = state.queueTab === "assigned"
+    ? [
+        ["#", (_item, index) => index + 1],
+        ["Placa", (item) => escapeHtml(item.plate)],
+        ["Transportadora", (item) => escapeHtml(item.carrier)],
+        ["Conductor", (item) => escapeHtml(item.driverName)],
+        ["Celular", (item) => escapeHtml(item.driverPhone || "")],
+        ["Destinos", renderDestinations],
+        ["Inspector", (item) => escapeHtml(item.latestInspection?.inspectorName || "-")],
+        ["Revisión", (item) => formatDate(item.latestInspection?.reviewedAt)],
+        ["Ingreso", (item) => formatDate(item.createdAt)],
+        ["Asignado", (item) => formatDate(item.assignedAt)],
+        ["Soportes", renderVehicleSupports],
+      ]
+    : [
+        ["#", (_item, index) => index + 1],
+        ["Placa", (item) => escapeHtml(item.plate)],
+        ["Cola", (item) => escapeHtml(item.queueGroupLabel || "-")],
+        ["Transportadora", (item) => escapeHtml(item.carrier)],
+        ["Conductor", (item) => escapeHtml(item.driverName)],
+        ["Destinos", renderDestinations],
+        ["Calidad", (item) => qualityBadge(item.qualityStatus)],
+        ["Inspector", (item) => escapeHtml(item.latestInspection?.inspectorName || "-")],
+        ["Motivo", (item) => escapeHtml(item.rejectionReason || item.latestInspection?.findingsSummary || "No informado")],
+        ["Rechazado", (item) => formatDate(item.rejectedAt)],
+        ["Soportes", renderVehicleSupports],
+      ];
+
+  elements.queueTables.innerHTML = renderTable(
+    columns,
+    rows,
+    state.queueTab === "assigned" ? "No hay viajes asignados." : "No hay vehículos rechazados.",
+  );
   bindQueueActions();
 }
 
 function renderQueueActions(item) {
-  if (item.status !== "QUEUED") return "";
+  if (!state.appState?.permissions?.canOperateLogistics || item.status !== "QUEUED") {
+    return `<span class="muted-text">Solo lectura</span>`;
+  }
   return `
     <div class="actions">
-      <button class="primary small-action" type="button" data-action="assign" data-id="${item.id}">Asignar</button>
+      <button class="primary small-action" type="button" data-action="assign" data-id="${item.id}" ${item.qualityStatus !== "APPROVED" ? "disabled" : ""}>Asignar</button>
       <button class="danger small-action" type="button" data-action="reject" data-id="${item.id}">Rechazar</button>
     </div>
   `;
@@ -309,22 +404,70 @@ function bindQueueActions() {
   });
 }
 
-function renderMastersTables(destinations, carriers, users) {
-  elements.destinationsTable.innerHTML = renderTable(
-    [["Ciudad", (item) => item.city], ["Zona", (item) => item.zone], ["Acción", (item) => `<button class="danger small-action" data-destination-delete="${item.id}" type="button">Eliminar</button>`]],
-    destinations,
-    "No hay destinos."
-  );
-  elements.carriersTable.innerHTML = renderTable(
-    [["Código", (item) => item.code], ["Transportadora", (item) => item.name], ["Acción", (item) => `<button class="danger small-action" data-carrier-delete="${item.id}" type="button">Eliminar</button>`]],
-    carriers,
-    "No hay transportadoras."
-  );
-  elements.usersTable.innerHTML = renderTable(
-    [["Usuario", (item) => item.username], ["Nombre", (item) => item.fullName], ["Rol", (item) => item.role], ["Estado", (item) => item.active ? "Activo" : "Inactivo"]],
-    users,
-    "No hay usuarios."
-  );
+function renderNamedTable(title, subtitle, content) {
+  return `
+    <section class="panel soft">
+      <div class="panel-heading">
+        <div>
+          <h3>${escapeHtml(title)}</h3>
+          <p>${escapeHtml(subtitle)}</p>
+        </div>
+      </div>
+      ${content}
+    </section>
+  `;
+}
+
+function renderCityQueues() {
+  if (!state.appState) return;
+  const blocks = (state.appState.cityQueues || []).map((group) => {
+    const rows = filterVehicles(group.vehicles || []);
+    return renderNamedTable(
+      group.city,
+      `${rows.length} vehículo(s) visible(s) en esta ciudad.`,
+      renderTable(
+        [
+          ["Turno", (item) => item.cityTurns?.[group.city] ? `<span class="turn">${item.cityTurns[group.city]}</span>` : "-"],
+          ["Placa", (item) => escapeHtml(item.plate)],
+          ["Transportadora", (item) => escapeHtml(item.carrier)],
+          ["Cola", (item) => escapeHtml(item.queueGroupLabel || "-")],
+          ["Conductor", (item) => escapeHtml(item.driverName)],
+          ["Calidad", (item) => qualityBadge(item.qualityStatus)],
+        ],
+        rows,
+        `No hay vehículos visibles para ${group.city}.`,
+      ),
+    );
+  });
+  elements.cityQueueTables.innerHTML = blocks.join("") || `<div class="empty">No hay ciudades configuradas.</div>`;
+}
+
+function renderMastersTables(destinations, carriers, users, permissions) {
+  if (permissions?.canManageCatalogs) {
+    elements.destinationsTable.innerHTML = renderTable(
+      [["Ciudad", (item) => escapeHtml(item.city)], ["Zona", (item) => escapeHtml(item.zone)], ["Acción", (item) => `<button class="danger small-action" data-destination-delete="${item.id}" type="button">Eliminar</button>`]],
+      destinations,
+      "No hay destinos."
+    );
+    elements.carriersTable.innerHTML = renderTable(
+      [["Código", (item) => escapeHtml(item.code)], ["Transportadora", (item) => escapeHtml(item.name)], ["Tipo de cola", (item) => item.code === "4000801" ? "Fila paralela Diana Agrícola" : "Fila general"], ["Acción", (item) => `<button class="danger small-action" data-carrier-delete="${item.id}" type="button">Eliminar</button>`]],
+      carriers,
+      "No hay transportadoras."
+    );
+  } else {
+    elements.destinationsTable.innerHTML = `<div class="empty">Solo el administrador puede modificar destinos.</div>`;
+    elements.carriersTable.innerHTML = `<div class="empty">Solo el administrador puede modificar transportadoras.</div>`;
+  }
+
+  if (permissions?.canManageUsers) {
+    elements.usersTable.innerHTML = renderTable(
+      [["Usuario", (item) => escapeHtml(item.username)], ["Nombre", (item) => escapeHtml(item.fullName)], ["Rol", (item) => translateRole(item.role)], ["Estado", (item) => item.active ? "Activo" : "Inactivo"]],
+      users,
+      "No hay usuarios."
+    );
+  } else {
+    elements.usersTable.innerHTML = `<div class="empty">Solo el administrador general puede ver y crear usuarios.</div>`;
+  }
   bindMasterActions();
 }
 
@@ -355,21 +498,52 @@ function renderQualityStack(container, rows, allowInspect, emptyText) {
       <h4>${escapeHtml(item.plate)} <span class="badge ${badgeClass(item.qualityStatus)}">${escapeHtml(translateQualityStatus(item.qualityStatus))}</span></h4>
       <div class="vehicle-meta">
         <span><strong>Transportadora:</strong> ${escapeHtml(item.carrier)}</span>
+        <span><strong>Cola:</strong> ${escapeHtml(item.queueGroupLabel || "-")}</span>
         <span><strong>Turno:</strong> ${item.turnPosition || "-"}</span>
         <span><strong>Conductor:</strong> ${escapeHtml(item.driverName)}</span>
         <span><strong>Celular:</strong> ${escapeHtml(item.driverPhone || "")}</span>
-        <span><strong>Destino:</strong> ${escapeHtml(item.city)} - ${escapeHtml(item.zone)}</span>
+        <span><strong>Destinos:</strong> ${renderDestinations(item)}</span>
         <span><strong>Responsable última:</strong> ${escapeHtml(item.latestInspection?.inspectorName || "-")}</span>
+        <span><strong>Revisado:</strong> ${escapeHtml(formatDate(item.latestInspection?.reviewedAt) || "Pendiente")}</span>
       </div>
       ${renderVehicleSupports(item)}
       <p class="muted-text">${escapeHtml(item.latestInspection?.findingsSummary || "Pendiente de checklist")}</p>
-      ${allowInspect ? `<div class="actions"><button class="primary" type="button" data-quality-review="${item.id}">Revisar vehículo</button></div>` : ""}
+      ${allowInspect && state.appState.permissions?.canOperateQuality ? `<div class="actions"><button class="primary" type="button" data-quality-review="${item.id}">Revisar vehículo</button></div>` : ""}
     </article>
   `).join("");
   container.querySelectorAll("[data-quality-review]").forEach((button) => {
     const vehicle = rows.find((item) => item.id === button.dataset.qualityReview);
     button.addEventListener("click", () => openQualityModal(vehicle));
   });
+}
+
+function renderHistoryTable() {
+  if (!state.appState) return;
+  const rows = filterHistoryRows(state.appState.history || []);
+  elements.historyTable.innerHTML = renderTable(
+    [
+      ["Fecha enturnamiento", (item) => escapeHtml(formatDateOnly(item.createdAt))],
+      ["Hora enturnamiento", (item) => escapeHtml(formatTimeOnly(item.createdAt))],
+      ["Placa", (item) => escapeHtml(item.plate)],
+      ["Cola", (item) => escapeHtml(item.queueGroupLabel || "-")],
+      ["Transportadora", (item) => escapeHtml(item.carrierLabel || item.carrier || "-")],
+      ["Conductor", (item) => escapeHtml(item.driverName || "-")],
+      ["Cédula", (item) => escapeHtml(item.driverId || "-")],
+      ["Celular", (item) => escapeHtml(item.driverPhone || "-")],
+      ["Destinos", (item) => escapeHtml(item.destinationSummary || "-")],
+      ["Estado logística", (item) => escapeHtml(translateLogisticsStatus(item.status))],
+      ["Estado calidad", (item) => qualityBadge(item.qualityStatus)],
+      ["Selfie", (item) => renderSupportLink(item.driverSelfieUrl, "Ver selfie")],
+      ["Firma", (item) => renderSupportLink(item.driverSignatureUrl, "Ver firma")],
+      ["Inspector", (item) => escapeHtml(item.inspectorName || "-")],
+      ["Fecha revisión", (item) => escapeHtml(formatDateOnly(item.reviewedAt))],
+      ["Hora revisión", (item) => escapeHtml(formatTimeOnly(item.reviewedAt))],
+      ["Tiempo enturnamiento vs calidad", (item) => escapeHtml(item.reviewLeadLabel || "Pendiente")],
+      ["Hallazgos / motivo", (item) => escapeHtml(item.findingsSummary || item.rejectionReason || "-")],
+    ],
+    rows,
+    "No hay historial registrado todavía.",
+  );
 }
 
 function renderReport(container, rows, emptyText) {
@@ -404,6 +578,11 @@ function renderChecklistForm() {
 async function submitVehicle(event) {
   event.preventDefault();
   const form = new FormData(elements.vehicleForm);
+  const destinationIds = Array.from(elements.destinationSelect.selectedOptions).map((option) => option.value).filter(Boolean);
+  if (!destinationIds.length) {
+    showToast("Debes seleccionar al menos un destino.");
+    return;
+  }
   try {
     await request("/vehicles", {
       method: "POST",
@@ -414,10 +593,12 @@ async function submitVehicle(event) {
         driverId: form.get("driverId"),
         driverPhone: form.get("driverPhone"),
         emptyWeightKg: form.get("emptyWeightKg"),
-        destinationId: form.get("destinationId"),
+        destinationId: destinationIds[0],
+        destinationIds,
       },
     });
     elements.vehicleForm.reset();
+    Array.from(elements.destinationSelect.options).forEach((option) => { option.selected = false; });
     await refreshAppState();
     showToast("Vehículo enturnado correctamente.");
   } catch (error) {
@@ -546,7 +727,7 @@ function openQualityModal(vehicle) {
   state.qualityVehicle = vehicle;
   const inspection = vehicle.latestInspection || {};
   elements.qualityModalTitle.textContent = `Checklist ${vehicle.plate}`;
-  elements.qualityMeta.textContent = `Conductor: ${vehicle.driverName} | Turno: ${vehicle.turnPosition || "-"} | Responsable: ${state.user.fullName}`;
+  elements.qualityMeta.textContent = `Conductor: ${vehicle.driverName} | Cola: ${vehicle.queueGroupLabel || "-"} | Turno: ${vehicle.turnPosition || "-"} | Responsable: ${state.user.fullName}`;
   elements.observationsText.value = inspection.observationsText || "";
   elements.finalDecision.value = inspection.finalDecision || (vehicle.qualityStatus === "REWORK" ? "REWORK" : "APPROVED");
   document.querySelectorAll("[name='suitability']").forEach((checkbox) => {
@@ -622,7 +803,17 @@ function filterVehicles(rows) {
   const query = elements.searchInput.value.trim().toLowerCase();
   if (!query) return rows || [];
   return (rows || []).filter((row) =>
-    [row.plate, row.carrier, row.carrierCode, row.driverName, row.driverId, row.driverPhone, row.city, row.zone, row.rejectionReason]
+    [row.plate, row.carrier, row.carrierCode, row.driverName, row.driverId, row.driverPhone, row.city, row.zone, row.queueGroupLabel, row.rejectionReason, renderDestinationsText(row)]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(query))
+  );
+}
+
+function filterHistoryRows(rows) {
+  const query = elements.historySearchInput.value.trim().toLowerCase();
+  if (!query) return rows || [];
+  return (rows || []).filter((row) =>
+    [row.plate, row.carrier, row.carrierLabel, row.driverName, row.driverId, row.driverPhone, row.destinationSummary, row.queueGroupLabel, row.inspectorName, row.findingsSummary, row.rejectionReason]
       .filter(Boolean)
       .some((value) => String(value).toLowerCase().includes(query))
   );
@@ -635,12 +826,35 @@ function qualityBadge(status) {
 function renderVehicleSupports(item) {
   const links = [];
   if (item.driverSelfieUrl) {
-    links.push(`<a class="support-link" href="${encodeURI(item.driverSelfieUrl)}" target="_blank" rel="noopener noreferrer">Ver selfie</a>`);
+    links.push(renderSupportLink(item.driverSelfieUrl, "Ver selfie"));
   }
   if (item.driverSignatureUrl) {
-    links.push(`<a class="support-link" href="${encodeURI(item.driverSignatureUrl)}" target="_blank" rel="noopener noreferrer">Ver firma</a>`);
+    links.push(renderSupportLink(item.driverSignatureUrl, "Ver firma"));
   }
   return links.length ? `<div class="support-links">${links.join("")}</div>` : `<span class="muted-text">Sin soportes visuales.</span>`;
+}
+
+function renderSupportLink(url, label) {
+  if (!url) return `<span class="muted-text">Sin archivo</span>`;
+  return `<a class="support-link" href="${encodeURI(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
+}
+
+function renderDestinations(item) {
+  return escapeHtml(renderDestinationsText(item));
+}
+
+function renderDestinationsText(item) {
+  const options = Array.isArray(item.destinationOptions) && item.destinationOptions.length
+    ? item.destinationOptions.map((option) => `${option.city} - ${option.zone}`)
+    : [`${item.city || ""}${item.zone ? ` - ${item.zone}` : ""}`.trim()];
+  return options.filter(Boolean).join(", ");
+}
+
+function renderCityTurns(item) {
+  const turns = item.cityTurns || {};
+  const entries = Object.entries(turns);
+  if (!entries.length) return "-";
+  return entries.map(([city, turn]) => `${city}: ${turn}`).join(" | ");
 }
 
 function badgeClass(status) {
@@ -671,6 +885,22 @@ function translateReportLabel(label) {
     REWORK: "Requiere arreglos",
     REJECTED: "No apto / rechazado",
   }[label] || label;
+}
+
+function translateLogisticsStatus(status) {
+  return {
+    QUEUED: "En turno",
+    ASSIGNED: "Viaje asignado",
+    REJECTED: "Rechazado",
+  }[status] || status || "-";
+}
+
+function translateRole(role) {
+  return {
+    ADMIN: "Administrador general",
+    LOGISTICA: "Logística",
+    CALIDAD: "Calidad",
+  }[role] || role;
 }
 
 async function filesToDataUrls(files) {
@@ -709,6 +939,20 @@ function formatDate(value) {
   return new Intl.DateTimeFormat("es-CO", { dateStyle: "short", timeStyle: "short" }).format(date);
 }
 
+function formatDateOnly(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("es-CO", { dateStyle: "short" }).format(date);
+}
+
+function formatTimeOnly(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("es-CO", { timeStyle: "short" }).format(date);
+}
+
 function formatNumber(value) {
   if (value === null || value === undefined || value === "") return "";
   return new Intl.NumberFormat("es-CO", { maximumFractionDigits: 1 }).format(Number(value));
@@ -726,3 +970,5 @@ function showToast(message) {
   elements.toast.classList.add("show");
   toastTimer = setTimeout(() => elements.toast.classList.remove("show"), 3200);
 }
+
+

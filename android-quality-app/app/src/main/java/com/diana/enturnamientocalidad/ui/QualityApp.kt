@@ -49,7 +49,7 @@ fun QualityApp(viewModel: QualityViewModel) {
     }
 
     LaunchedEffect(uiState.loggedIn, currentRoute) {
-        if (uiState.loggedIn && currentRoute == "home") {
+        if (uiState.loggedIn && currentRoute != "login") {
             while (true) {
                 delay(30000)
                 viewModel.refresh()
@@ -94,10 +94,60 @@ fun QualityApp(viewModel: QualityViewModel) {
                     uiState = uiState,
                     onRefresh = viewModel::refresh,
                     onLogout = viewModel::logout,
+                    onOpenPending = { navController.navigate("status/pending") },
+                    onOpenRework = { navController.navigate("status/rework") },
+                    onOpenApproved = { navController.navigate("status/approved") },
+                    onOpenRejected = { navController.navigate("status/rejected") },
+                )
+            }
+            composable("status/pending") {
+                QualityStatusScreen(
+                    padding = padding,
+                    title = "Pendientes por revisar",
+                    subtitle = "Vehiculos recien enturnados que aun no tienen checklist completo.",
+                    vehicles = uiState.pending,
+                    allowReview = true,
+                    onBack = { navController.popBackStack() },
                     onOpenInspection = { vehicle ->
                         InspectionRoutesHolder.vehicle = vehicle
                         navController.navigate("inspection")
                     },
+                )
+            }
+            composable("status/rework") {
+                QualityStatusScreen(
+                    padding = padding,
+                    title = "Vehiculos en arreglos",
+                    subtitle = "Unidades revisadas que requieren ajustes antes de aprobarse.",
+                    vehicles = uiState.rework,
+                    allowReview = true,
+                    onBack = { navController.popBackStack() },
+                    onOpenInspection = { vehicle ->
+                        InspectionRoutesHolder.vehicle = vehicle
+                        navController.navigate("inspection")
+                    },
+                )
+            }
+            composable("status/approved") {
+                QualityStatusScreen(
+                    padding = padding,
+                    title = "Vehiculos aptos",
+                    subtitle = "Consulta los vehiculos aptos del dia con su informacion consolidada.",
+                    vehicles = uiState.approved,
+                    allowReview = false,
+                    onBack = { navController.popBackStack() },
+                    onOpenInspection = {},
+                )
+            }
+            composable("status/rejected") {
+                QualityStatusScreen(
+                    padding = padding,
+                    title = "Vehiculos rechazados",
+                    subtitle = "Consulta los rechazados del dia y sus observaciones.",
+                    vehicles = uiState.rejected,
+                    allowReview = false,
+                    onBack = { navController.popBackStack() },
+                    onOpenInspection = {},
                 )
             }
             composable("inspection") {

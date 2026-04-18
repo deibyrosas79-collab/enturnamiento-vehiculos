@@ -1,10 +1,89 @@
 <?xml version="1.0" encoding="utf-8"?>
-<inset xmlns:android="http://schemas.android.com/apk/res/android"
-    android:insetBottom="28dp"
-    android:insetLeft="28dp"
-    android:insetRight="28dp"
-    android:insetTop="28dp">
-    <bitmap
-        android:gravity="center"
-        android:src="@drawable/logo_control_calidad" />
-</inset>
+<!--
+  Adaptive icon foreground: 108×108dp canvas.
+  Safe zone: 72×72dp centred at (54,54) → roughly x:18–90, y:18–90.
+  Design: premium hexagon badge with QC checkmark and clean geometry.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- ── OUTER SOFT GLOW RING ─────────────────────────── -->
+    <path
+        android:fillColor="#18FFFFFF"
+        android:pathData="
+          M54,15
+          L76,27 L76,81 L54,93 L32,81 L32,27 Z" />
+
+    <!-- ── HEXAGON BODY (white, crisp) ────────────────────── -->
+    <path
+        android:fillColor="#F4F8FF"
+        android:pathData="
+          M54,19
+          L74,30.5 L74,77.5 L54,89 L34,77.5 L34,30.5 Z" />
+
+    <!-- ── TOP ACCENT BAND (blue gradient simulation) ─────── -->
+    <path
+        android:fillColor="#1B58E8"
+        android:fillAlpha="0.12"
+        android:pathData="
+          M54,19
+          L74,30.5 L74,44
+          L34,44 L34,30.5 Z" />
+
+    <!-- ── LEFT EDGE HIGHLIGHT ────────────────────────────── -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.0"
+        android:strokeAlpha="0.80"
+        android:pathData="M34,30.5 L54,19 L74,30.5" />
+
+    <!-- ── INNER CIRCLE RING ──────────────────────────────── -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#1B58E8"
+        android:strokeWidth="1.4"
+        android:strokeAlpha="0.18"
+        android:pathData="M54,33 A21,21 0 1,0 54.01,33 Z" />
+
+    <!-- ── CHECKMARK THICK (main stroke, deep blue) ──────── -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#1B58E8"
+        android:strokeWidth="5.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M38,55 L48,67 L71,40" />
+
+    <!-- ── CHECKMARK THIN OVERLAY (lighter, for depth) ───── -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeAlpha="0.55"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M38,55 L48,67 L71,40" />
+
+    <!-- ── BOTTOM LABEL BAR ───────────────────────────────── -->
+    <path
+        android:fillColor="#1B58E8"
+        android:pathData="M34,77.5 L54,89 L74,77.5 L74,81 L54,93 L34,81 Z" />
+
+    <!-- ── QC DOTS on label bar ───────────────────────────── -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.85"
+        android:pathData="M48,83 A2.2,2.2 0 1,0 48.01,83 Z" />
+    <path
+        android:fillColor="#0FA872"
+        android:pathData="M54,85.5 A2.2,2.2 0 1,0 54.01,85.5 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.85"
+        android:pathData="M60,83 A2.2,2.2 0 1,0 60.01,83 Z" />
+
+</vector>

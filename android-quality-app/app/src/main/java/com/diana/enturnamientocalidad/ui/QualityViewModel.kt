@@ -21,6 +21,8 @@ import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.time.OffsetDateTime
+import java.time.ZoneId
 
 data class QualityUiState(
     val loading: Boolean = false,
@@ -31,6 +33,8 @@ data class QualityUiState(
     val rework: List<VehicleDto> = emptyList(),
     val approved: List<VehicleDto> = emptyList(),
     val rejected: List<VehicleDto> = emptyList(),
+    val dailyApprovedCount: Int = 0,
+    val dailyRejectedCount: Int = 0,
     val errorMessage: String? = null,
 )
 
@@ -122,6 +126,12 @@ class QualityViewModel(
             )
             return
         }
+        val approvedToday = state.quality.approved.filter {
+            it.latestInspection?.reviewedAt?.let(::isTodayInBogota) == true
+        }
+        val rejectedToday = state.quality.rejected.filter {
+            it.latestInspection?.reviewedAt?.let(::isTodayInBogota) == true
+        }
         _uiState.value = QualityUiState(
             loading = false,
             loggedIn = true,
@@ -129,9 +139,19 @@ class QualityViewModel(
             role = state.user.role,
             pending = state.quality.pending,
             rework = state.quality.rework,
-            approved = state.quality.approved,
-            rejected = state.quality.rejected,
+            approved = approvedToday,
+            rejected = rejectedToday,
+            dailyApprovedCount = state.quality.dailyApprovedCount,
+            dailyRejectedCount = state.quality.dailyRejectedCount,
         )
+    }
+
+    private fun isTodayInBogota(value: String): Boolean {
+        return runCatching {
+            OffsetDateTime.parse(value)
+                .atZoneSameInstant(ZoneId.of("America/Bogota"))
+                .toLocalDate() == java.time.LocalDate.now(ZoneId.of("America/Bogota"))
+        }.getOrDefault(false)
     }
 
     private fun humanizeError(error: Throwable): String {

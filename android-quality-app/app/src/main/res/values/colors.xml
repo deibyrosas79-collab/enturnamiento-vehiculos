@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="launcher_bg_start">#0F3D91</color>
-    <color name="launcher_bg_end">#2A6EE8</color>
+    <!-- Launcher gradient: indigo night → brand blue → electric sky -->
+    <color name="launcher_bg_start">#060E2A</color>
+    <color name="launcher_bg_mid">#0F2E8A</color>
+    <color name="launcher_bg_end">#1B58E8</color>
 </resources>

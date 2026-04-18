@@ -53,6 +53,8 @@ data class QualityStateDto(
     val approved: List<VehicleDto>,
     val rejected: List<VehicleDto>,
     val inspections: List<InspectionDto>,
+    val dailyApprovedCount: Int = 0,
+    val dailyRejectedCount: Int = 0,
 )
 
 data class AppStateDto(
