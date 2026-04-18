@@ -9,8 +9,10 @@ import math
 import mimetypes
 import os
 import secrets
-import sqlite3
 import uuid
+
+import psycopg2
+import psycopg2.extras
 from datetime import datetime, timedelta, timezone
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -20,9 +22,8 @@ from urllib.parse import unquote, urlparse
 
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data"
-DB_PATH = Path(os.environ.get("DB_PATH", str(DATA_DIR / "enturnamiento.db")))
-UPLOADS_DIR = Path(os.environ.get("UPLOADS_DIR", str(DB_PATH.parent / "uploads")))
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+UPLOADS_DIR = Path(os.environ.get("UPLOADS_DIR", str(BASE_DIR / "data" / "uploads")))
 HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "8000"))
 SESSION_COOKIE = "ev_session"
@@ -169,13 +170,64 @@ def queue_group_label(queue_group: str) -> str:
     return "Diana Agricola" if queue_group == QUEUE_GROUP_DIANA else "Otras transportadoras"
 
 
-def get_connection() -> sqlite3.Connection:
-    DATA_DIR.mkdir(exist_ok=True)
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+class _Row(dict):
+    """Dict que soporta acceso por índice entero (compatibilidad con sqlite3.Row)."""
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return list(self.values())[key]
+        return super().__getitem__(key)
+
+
+class _Cursor:
+    def __init__(self, cur):
+        self._cur = cur
+
+    def fetchone(self):
+        row = self._cur.fetchone()
+        return _Row(row) if row else None
+
+    def fetchall(self):
+        return [_Row(r) for r in (self._cur.fetchall() or [])]
+
+
+class _Conn:
+    """Wrapper de psycopg2 que expone la misma API que sqlite3.Connection."""
+
+    def __init__(self, raw):
+        self._raw = raw
+        self._cur = raw.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    @staticmethod
+    def _adapt(sql: str) -> str:
+        return sql.replace("?", "%s")
+
+    def execute(self, sql: str, params=None) -> _Cursor:
+        self._cur.execute(self._adapt(sql), params)
+        return _Cursor(self._cur)
+
+    def executemany(self, sql: str, seq) -> None:
+        self._cur.executemany(self._adapt(sql), seq)
+
+    def executescript(self, script: str) -> None:
+        for stmt in script.split(";"):
+            stmt = stmt.strip()
+            if stmt:
+                self._cur.execute(stmt)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, *_):
+        if exc_type is None:
+            self._raw.commit()
+        else:
+            self._raw.rollback()
+        self._raw.close()
+
+
+def get_connection() -> _Conn:
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(DB_PATH)
-    connection.row_factory = sqlite3.Row
-    return connection
+    return _Conn(psycopg2.connect(DATABASE_URL))
 
 
 def hash_password(password: str) -> str:
@@ -290,7 +342,10 @@ def init_db() -> None:
 
 
 def ensure_vehicle_columns(db: sqlite3.Connection) -> None:
-    columns = {row["name"] for row in db.execute("PRAGMA table_info(vehicles)").fetchall()}
+    columns = {row["name"] for row in db.execute(
+        "SELECT column_name AS name FROM information_schema.columns "
+        "WHERE table_name = 'vehicles' AND table_schema = current_schema()"
+    ).fetchall()}
     extra_columns = {
         "carrier_id": "TEXT",
         "driver_phone": "TEXT",
@@ -309,7 +364,7 @@ def ensure_vehicle_columns(db: sqlite3.Connection) -> None:
     }
     for column_name, column_type in extra_columns.items():
         if column_name not in columns:
-            db.execute(f"ALTER TABLE vehicles ADD COLUMN {column_name} {column_type}")
+            db.execute(f"ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS {column_name} {column_type}")
     db.execute(
         "UPDATE vehicles SET quality_status = ? WHERE quality_status IS NULL OR quality_status = ''",
         (QUALITY_PENDING,),
@@ -324,7 +379,7 @@ def ensure_vehicle_columns(db: sqlite3.Connection) -> None:
     db.execute(
         """
         UPDATE vehicles
-        SET destination_ids_json = json_array(destination_id)
+        SET destination_ids_json = json_build_array(destination_id)::text
         WHERE (destination_ids_json IS NULL OR destination_ids_json = '')
           AND destination_id IS NOT NULL AND destination_id != ''
         """
@@ -342,31 +397,8 @@ def ensure_vehicle_columns(db: sqlite3.Connection) -> None:
     compact_queue(db)
 
 
-def ensure_user_roles_schema(db: sqlite3.Connection) -> None:
-    table_sql_row = db.execute(
-        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'"
-    ).fetchone()
-    table_sql = (table_sql_row["sql"] or "") if table_sql_row else ""
-    if "'ADMIN'" in table_sql:
-        return
-    db.executescript(
-        """
-        ALTER TABLE users RENAME TO users_old;
-        CREATE TABLE users (
-            id TEXT PRIMARY KEY,
-            username TEXT NOT NULL UNIQUE,
-            full_name TEXT NOT NULL,
-            role TEXT NOT NULL CHECK(role IN ('ADMIN', 'LOGISTICA', 'CALIDAD')),
-            password_hash TEXT NOT NULL,
-            active INTEGER NOT NULL DEFAULT 1,
-            created_at TEXT NOT NULL
-        );
-        INSERT INTO users (id, username, full_name, role, password_hash, active, created_at)
-        SELECT id, username, full_name, role, password_hash, active, created_at
-        FROM users_old;
-        DROP TABLE users_old;
-        """
-    )
+def ensure_user_roles_schema(db: _Conn) -> None:
+    pass  # PostgreSQL crea las tablas con los constraints correctos desde el inicio
 
 
 def seed_settings(db: sqlite3.Connection) -> None:
@@ -1281,26 +1313,15 @@ def build_findings_summary(checklist: Dict[str, Any]) -> str:
 
 def save_data_url_image(vehicle_id: str, inspection_id: str, item_key: str, index: int, data_url: str) -> str:
     try:
-        header, encoded = data_url.split(",", 1)
+        _header, encoded = data_url.split(",", 1)
     except ValueError as exc:
         raise AppError("Una evidencia enviada no tiene formato valido.", 400) from exc
-
-    extension = "jpg"
-    if "image/png" in header:
-        extension = "png"
-    elif "image/webp" in header:
-        extension = "webp"
     try:
-        content = base64.b64decode(encoded)
+        base64.b64decode(encoded)
     except (binascii.Error, ValueError) as exc:
         raise AppError("No se pudo decodificar una evidencia fotografica.", 400) from exc
-
-    vehicle_dir = UPLOADS_DIR / vehicle_id
-    vehicle_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"{inspection_id}_{item_key}_{index}.{extension}"
-    path = vehicle_dir / filename
-    path.write_bytes(content)
-    return f"/uploads/{vehicle_id}/{filename}"
+    # Las imágenes se guardan como data URL directamente en PostgreSQL (sin disco)
+    return data_url
 
 
 def save_checklist_evidence(vehicle_id: str, inspection_id: str, checklist: Dict[str, Any]) -> Dict[str, Any]:
@@ -1421,7 +1442,7 @@ class Handler(BaseHTTPRequestHandler):
             self.serve_static(parsed.path)
         except AppError as error:
             self.send_error_json(error.message, error.status)
-        except sqlite3.Error as error:
+        except psycopg2.Error as error:
             self.send_error_json(f"Error de base de datos: {error}", 500)
 
     def do_POST(self) -> None:
@@ -1491,7 +1512,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error_json("Ruta no encontrada.", 404)
         except AppError as error:
             self.send_error_json(error.message, error.status)
-        except sqlite3.Error as error:
+        except psycopg2.Error as error:
             self.send_error_json(f"Error de base de datos: {error}", 500)
 
     def do_DELETE(self) -> None:
@@ -1515,7 +1536,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error_json("Ruta no encontrada.", 404)
         except AppError as error:
             self.send_error_json(error.message, error.status)
-        except sqlite3.Error as error:
+        except psycopg2.Error as error:
             self.send_error_json(f"Error de base de datos: {error}", 500)
 
     def do_OPTIONS(self) -> None:
@@ -1681,7 +1702,7 @@ def main() -> None:
     init_db()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Aplicacion lista en http://localhost:{PORT}")
-    print(f"Base de datos SQLite: {DB_PATH}")
+    print(f"Base de datos PostgreSQL conectada.")
     print("UI: Inter font, pill tabs, lift cards, spring modal — v2.1")
     server.serve_forever()
 
