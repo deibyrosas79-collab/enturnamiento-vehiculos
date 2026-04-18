@@ -226,6 +226,11 @@ class _Conn:
 
 
 def get_connection() -> _Conn:
+    if not DATABASE_URL:
+        raise RuntimeError(
+            "DATABASE_URL no configurada. "
+            "Agrega la variable de entorno en el dashboard de Render.com."
+        )
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     return _Conn(psycopg2.connect(DATABASE_URL))
 
