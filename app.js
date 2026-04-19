@@ -29,6 +29,8 @@ const HISTORY_CHECKLIST_COLUMNS = [
   { key: "fumigationOut", title: "Fumigación salida" },
 ];
 
+const SUITABILITY_OPTIONS = ["Cadenas", "Mayoristas", "Bodegas y operadores", "Subproductos"];
+
 const state = {
   user: null,
   appState: null,
@@ -36,6 +38,7 @@ const state = {
   queueTab: "queued",
   rejectVehicle: null,
   qualityVehicle: null,
+  suitabilityInsights: null,
 };
 
 const elements = {
@@ -86,6 +89,11 @@ const elements = {
   reasonReport: document.querySelector("#reasonReport"),
   suitabilityReport: document.querySelector("#suitabilityReport"),
   qualityDecisionReport: document.querySelector("#qualityDecisionReport"),
+  suitabilityHistoryModal: document.querySelector("#suitabilityHistoryModal"),
+  suitabilityHistoryTitle: document.querySelector("#suitabilityHistoryTitle"),
+  suitabilityHistoryDescription: document.querySelector("#suitabilityHistoryDescription"),
+  suitabilityHistoryTable: document.querySelector("#suitabilityHistoryTable"),
+  closeSuitabilityHistoryButton: document.querySelector("#closeSuitabilityHistoryButton"),
   rejectModal: document.querySelector("#rejectModal"),
   rejectForm: document.querySelector("#rejectForm"),
   rejectVehicleLabel: document.querySelector("#rejectVehicleLabel"),
@@ -147,6 +155,7 @@ function bindEvents() {
   elements.cancelRejectButton.addEventListener("click", closeRejectModal);
   elements.qualityForm.addEventListener("submit", submitQualityInspection);
   elements.cancelQualityButton.addEventListener("click", closeQualityModal);
+  elements.closeSuitabilityHistoryButton?.addEventListener("click", closeSuitabilityHistoryModal);
   elements.navTabs.forEach((button) => button.addEventListener("click", () => switchView(button.dataset.view)));
   elements.queueTabs.forEach((button) => button.addEventListener("click", () => switchQueueTab(button.dataset.queueTab)));
   elements.rejectModal.addEventListener("click", (event) => {
@@ -154,6 +163,9 @@ function bindEvents() {
   });
   elements.qualityModal.addEventListener("click", (event) => {
     if (event.target === elements.qualityModal) closeQualityModal();
+  });
+  elements.suitabilityHistoryModal?.addEventListener("click", (event) => {
+    if (event.target === elements.suitabilityHistoryModal) closeSuitabilityHistoryModal();
   });
 }
 
@@ -260,6 +272,7 @@ function renderApp() {
   elements.siteLng.value = settings.siteLng || "-72.402228";
   elements.siteRadiusM.value = settings.siteRadiusM || "180";
   elements.geofenceEnabled.checked = settings.geofenceEnabled;
+  state.suitabilityInsights = buildSuitabilityInsights(state.appState.history || []);
 
   renderQueueTables();
   renderCityQueues();
@@ -268,7 +281,7 @@ function renderApp() {
   renderHistoryTable();
   renderReport(elements.carrierRejectReport, analytics.rejectedByCarrier, "No hay rechazos por transportadora.");
   renderReport(elements.reasonReport, analytics.topRejectionReasons, "No hay motivos registrados.");
-  renderReport(elements.suitabilityReport, analytics.suitabilityCounts, "Sin datos de compatibilidad.");
+  renderSuitabilityReport();
   renderReport(elements.qualityDecisionReport, analytics.qualityDecisionCounts, "Sin decisiones de calidad.");
 }
 
@@ -337,6 +350,7 @@ function renderQueueTables() {
       ["Celular", (item) => escapeHtml(item.driverPhone || "")],
       ["P. vacío (kg)", (item) => formatNumber(item.emptyWeightKg)],
       ["Destinos", renderDestinations],
+      ["Alerta historial", renderSuitabilityAlertCell],
       ["Turnos por ciudad", renderCityTurns],
       ["Calidad", (item) => qualityBadge(item.qualityStatus)],
       ["Canal", (item) => `<span class="badge channel">${escapeHtml(item.registrationChannel || "DESK")}</span>`],
@@ -519,6 +533,7 @@ function renderQualityStack(container, rows, allowInspect, emptyText) {
         <span><strong>Conductor:</strong> ${escapeHtml(item.driverName)}</span>
         <span><strong>Celular:</strong> ${escapeHtml(item.driverPhone || "")}</span>
         <span><strong>Destinos:</strong> ${renderDestinations(item)}</span>
+        <span><strong>Historial útil:</strong> ${renderSuitabilityAlertInline(item)}</span>
         <span><strong>Responsable última:</strong> ${escapeHtml(item.latestInspection?.inspectorName || "-")}</span>
         <span><strong>Revisado:</strong> ${escapeHtml(formatDate(item.latestInspection?.reviewedAt) || "Pendiente")}</span>
       </div>
@@ -551,6 +566,57 @@ function renderReport(container, rows, emptyText) {
   );
 }
 
+function renderSuitabilityReport() {
+  const categories = state.suitabilityInsights?.categories || [];
+  if (!categories.length || categories.every((item) => !item.rows.length)) {
+    elements.suitabilityReport.innerHTML = `<div class="empty">Sin datos de compatibilidad.</div>`;
+    return;
+  }
+  elements.suitabilityReport.innerHTML = renderTable(
+    [
+      [
+        "Concepto",
+        (item) => item.rows.length
+          ? `<button class="report-link" type="button" data-suitability-history="${encodeURIComponent(item.label)}">${escapeHtml(item.label)}</button>`
+          : `<span class="muted-text">${escapeHtml(item.label)}</span>`,
+      ],
+      ["Cantidad", (item) => item.rows.length],
+    ],
+    categories,
+    "Sin datos de compatibilidad.",
+  );
+  elements.suitabilityReport.querySelectorAll("[data-suitability-history]").forEach((button) => {
+    button.addEventListener("click", () => openSuitabilityHistoryModal(decodeURIComponent(button.dataset.suitabilityHistory)));
+  });
+}
+
+function openSuitabilityHistoryModal(category) {
+  const categoryData = state.suitabilityInsights?.categories.find((item) => item.label === category);
+  const rows = categoryData?.rows || [];
+  elements.suitabilityHistoryTitle.textContent = `Historial de vehículos aptos para ${category}`;
+  elements.suitabilityHistoryDescription.textContent = rows.length
+    ? `Aquí ves las placas que ya han servido para ${category}. Esta información también aparecerá como alerta cuando esa placa vuelva a enturnarse.`
+    : `Todavía no hay placas con historial apto para ${category}.`;
+  elements.suitabilityHistoryTable.innerHTML = renderTable(
+    [
+      ["Placa", (item) => escapeHtml(item.plate)],
+      ["Transportadora más reciente", (item) => escapeHtml(item.carrier || "-")],
+      ["Último conductor", (item) => escapeHtml(item.driverName || "-")],
+      ["Veces apto", (item) => escapeHtml(String(item.approvalCount || 0))],
+      ["Última revisión", (item) => escapeHtml(formatDate(item.lastReviewedAt) || "-")],
+      ["Inspector última", (item) => escapeHtml(item.inspectorName || "-")],
+      ["Destinos", (item) => escapeHtml(item.destinationsText || "-")],
+    ],
+    rows,
+    `No hay historial disponible para ${category}.`,
+  );
+  elements.suitabilityHistoryModal.classList.remove("hidden");
+}
+
+function closeSuitabilityHistoryModal() {
+  elements.suitabilityHistoryModal.classList.add("hidden");
+}
+
 function renderChecklistForm() {
   elements.qualityChecklistGrid.innerHTML = CHECKLIST_ITEMS.map((item) => `
     <section class="quality-item" data-check-item="${item.key}">
@@ -571,6 +637,7 @@ function renderChecklistForm() {
 async function submitVehicle(event) {
   event.preventDefault();
   const form = new FormData(elements.vehicleForm);
+  const registeredPlate = normalizePlateClient(form.get("plate"));
   const destinationIds = Array.from(elements.destinationSelect.selectedOptions).map((option) => option.value).filter(Boolean);
   if (!destinationIds.length) {
     showToast("Debes seleccionar al menos un destino.");
@@ -593,7 +660,12 @@ async function submitVehicle(event) {
     elements.vehicleForm.reset();
     Array.from(elements.destinationSelect.options).forEach((option) => { option.selected = false; });
     await refreshAppState();
-    showToast("Vehículo enturnado correctamente.");
+    const suitabilityHistory = getPlateSuitabilityHistory(registeredPlate);
+    showToast(
+      suitabilityHistory.length
+        ? `Vehículo enturnado. Historial útil detectado: ${suitabilityHistory.join(", ")}.`
+        : "Vehículo enturnado correctamente.",
+    );
   } catch (error) {
     showToast(error.message);
   }
@@ -796,7 +868,7 @@ function filterVehicles(rows) {
   const query = elements.searchInput.value.trim().toLowerCase();
   if (!query) return rows || [];
   return (rows || []).filter((row) =>
-    [row.plate, row.carrier, row.carrierCode, row.driverName, row.driverId, row.driverPhone, row.city, row.zone, row.queueGroupLabel, row.rejectionReason, renderDestinationsText(row)]
+    [row.plate, row.carrier, row.carrierCode, row.driverName, row.driverId, row.driverPhone, row.city, row.zone, row.queueGroupLabel, row.rejectionReason, renderDestinationsText(row), getPlateSuitabilityHistory(row.plate).join(", ")]
       .filter(Boolean)
       .some((value) => String(value).toLowerCase().includes(query))
   );
@@ -949,6 +1021,78 @@ function getChecklistHistoryResult(item, checklistKey) {
 
 function getSupportText(url, labelWhenPresent) {
   return url ? labelWhenPresent : "Sin archivo";
+}
+
+function buildSuitabilityInsights(historyRows) {
+  const categoryBuckets = Object.fromEntries(SUITABILITY_OPTIONS.map((label) => [label, new Map()]));
+  const plateAlerts = {};
+  (historyRows || []).forEach((row) => {
+    const plate = normalizePlateClient(row.plate);
+    if (!plate) return;
+    const inspections = Array.isArray(row.inspectionHistory) ? row.inspectionHistory : [];
+    inspections.forEach((inspection) => {
+      if (inspection.finalDecision !== "APPROVED") return;
+      const suitability = Array.isArray(inspection.suitability) ? inspection.suitability : [];
+      suitability.forEach((category) => {
+        if (!categoryBuckets[category]) return;
+        const existing = categoryBuckets[category].get(plate) || {
+          plate,
+          carrier: row.carrierLabel || row.carrier || "-",
+          driverName: row.driverName || "-",
+          approvalCount: 0,
+          lastReviewedAt: inspection.reviewedAt || "",
+          inspectorName: inspection.inspectorName || "-",
+          destinationsText: getHistoryDestinationSummary(row),
+        };
+        existing.approvalCount += 1;
+        const existingTime = new Date(existing.lastReviewedAt || 0).getTime();
+        const candidateTime = new Date(inspection.reviewedAt || 0).getTime();
+        if (!existing.lastReviewedAt || candidateTime >= existingTime) {
+          existing.carrier = row.carrierLabel || row.carrier || "-";
+          existing.driverName = row.driverName || "-";
+          existing.lastReviewedAt = inspection.reviewedAt || "";
+          existing.inspectorName = inspection.inspectorName || "-";
+          existing.destinationsText = getHistoryDestinationSummary(row);
+        }
+        categoryBuckets[category].set(plate, existing);
+        plateAlerts[plate] = plateAlerts[plate] || new Set();
+        plateAlerts[plate].add(category);
+      });
+    });
+  });
+  return {
+    categories: SUITABILITY_OPTIONS.map((label) => ({
+      label,
+      rows: Array.from(categoryBuckets[label].values()).sort((a, b) => {
+        const dateA = new Date(a.lastReviewedAt || 0).getTime();
+        const dateB = new Date(b.lastReviewedAt || 0).getTime();
+        return dateB - dateA || a.plate.localeCompare(b.plate);
+      }),
+    })),
+    plateAlerts: Object.fromEntries(
+      Object.entries(plateAlerts).map(([plate, categories]) => [plate, Array.from(categories).sort((a, b) => a.localeCompare(b))]),
+    ),
+  };
+}
+
+function renderSuitabilityAlertCell(item) {
+  const categories = getPlateSuitabilityHistory(item.plate);
+  if (!categories.length) return `<span class="muted-text">Sin historial</span>`;
+  return `<div class="suitability-alerts">${categories.map((category) => `<span class="badge suitability">${escapeHtml(category)}</span>`).join("")}</div>`;
+}
+
+function renderSuitabilityAlertInline(item) {
+  const categories = getPlateSuitabilityHistory(item.plate);
+  if (!categories.length) return `<span class="muted-text">Sin historial</span>`;
+  return categories.map((category) => `<span class="badge suitability">${escapeHtml(category)}</span>`).join(" ");
+}
+
+function getPlateSuitabilityHistory(plate) {
+  return state.suitabilityInsights?.plateAlerts?.[normalizePlateClient(plate)] || [];
+}
+
+function normalizePlateClient(value) {
+  return String(value || "").trim().toUpperCase().replace(/[\s-]+/g, "");
 }
 
 function qualityBadge(status) {
