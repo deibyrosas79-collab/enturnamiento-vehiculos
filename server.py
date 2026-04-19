@@ -11,6 +11,8 @@ import os
 import secrets
 import uuid
 
+import sqlite3
+
 import psycopg2
 import psycopg2.extras
 from datetime import datetime, timedelta, timezone
@@ -1016,7 +1018,7 @@ def create_vehicle(
                 empty_weight_kg, driver_selfie_url, driver_signature_url, destination_ids_json, destination_id, city, zone,
                 queue_group, status, quality_status, queue_position, created_at, registration_channel, gps_lat, gps_lng,
                 gps_distance_m, public_tracking_token
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'QUEUED', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 vehicle_id,
@@ -1035,6 +1037,7 @@ def create_vehicle(
                 destination["city"],
                 destination["zone"],
                 queue_group,
+                QUEUE_STATUS_ACTIVE,
                 QUALITY_PENDING,
                 next_position,
                 now_iso(),
