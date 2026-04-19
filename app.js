@@ -15,6 +15,20 @@ const CHECKLIST_ITEMS = [
   { key: "fumigationOut", label: "Fumigación salida", evidence: true },
 ];
 
+const HISTORY_CHECKLIST_COLUMNS = [
+  { key: "foodLegend", title: "Leyenda visible transporte de alimentos" },
+  { key: "cleanliness", title: "Libre de suciedad" },
+  { key: "strangeSmells", title: "Libre de olores extraños" },
+  { key: "stains", title: "Libre de manchas" },
+  { key: "damage", title: "Libre de orificios y averías" },
+  { key: "humidity", title: "Libre de humedad" },
+  { key: "infestation", title: "Libre de infestación" },
+  { key: "bulkWallsFloor", title: "Granel en paredes y piso" },
+  { key: "containerHoles", title: "Trompos limpios y protegidos" },
+  { key: "fumigationIn", title: "Fumigación ingreso" },
+  { key: "fumigationOut", title: "Fumigación salida" },
+];
+
 const state = {
   user: null,
   appState: null,
@@ -40,6 +54,7 @@ const elements = {
   destinationSelect: document.querySelector("#destinationId"),
   searchInput: document.querySelector("#searchInput"),
   historySearchInput: document.querySelector("#historySearchInput"),
+  exportHistoryButton: document.querySelector("#exportHistoryButton"),
   queueTables: document.querySelector("#queueTables"),
   cityQueueTables: document.querySelector("#cityQueueTables"),
   historyTable: document.querySelector("#historyTable"),
@@ -127,6 +142,7 @@ function bindEvents() {
     renderCityQueues();
   });
   elements.historySearchInput.addEventListener("input", renderHistoryTable);
+  elements.exportHistoryButton?.addEventListener("click", exportHistoryToExcel);
   elements.rejectForm.addEventListener("submit", submitRejectVehicle);
   elements.cancelRejectButton.addEventListener("click", closeRejectModal);
   elements.qualityForm.addEventListener("submit", submitQualityInspection);
@@ -520,30 +536,7 @@ function renderQualityStack(container, rows, allowInspect, emptyText) {
 function renderHistoryTable() {
   if (!state.appState) return;
   const rows = filterHistoryRows(state.appState.history || []);
-  elements.historyTable.innerHTML = renderTable(
-    [
-      ["Fecha enturnamiento", (item) => escapeHtml(formatDateOnly(item.createdAt))],
-      ["Hora enturnamiento", (item) => escapeHtml(formatTimeOnly(item.createdAt))],
-      ["Placa", (item) => escapeHtml(item.plate)],
-      ["Cola", (item) => escapeHtml(item.queueGroupLabel || "-")],
-      ["Transportadora", (item) => escapeHtml(item.carrierLabel || item.carrier || "-")],
-      ["Conductor", (item) => escapeHtml(item.driverName || "-")],
-      ["Cédula", (item) => escapeHtml(item.driverId || "-")],
-      ["Celular", (item) => escapeHtml(item.driverPhone || "-")],
-      ["Destinos", (item) => escapeHtml(item.destinationSummary || "-")],
-      ["Estado logística", (item) => escapeHtml(translateLogisticsStatus(item.status))],
-      ["Estado calidad", (item) => qualityBadge(item.qualityStatus)],
-      ["Selfie", (item) => renderSupportLink(item.driverSelfieUrl, "Ver selfie")],
-      ["Firma", (item) => renderSupportLink(item.driverSignatureUrl, "Ver firma")],
-      ["Inspector", (item) => escapeHtml(item.inspectorName || "-")],
-      ["Fecha revisión", (item) => escapeHtml(formatDateOnly(item.reviewedAt))],
-      ["Hora revisión", (item) => escapeHtml(formatTimeOnly(item.reviewedAt))],
-      ["Tiempo enturnamiento vs calidad", (item) => escapeHtml(item.reviewLeadLabel || "Pendiente")],
-      ["Hallazgos / motivo", (item) => escapeHtml(item.findingsSummary || item.rejectionReason || "-")],
-    ],
-    rows,
-    "No hay historial registrado todavía.",
-  );
+  elements.historyTable.innerHTML = renderTable(getHistoryColumns(false), rows, "No hay historial registrado todavía.");
 }
 
 function renderReport(container, rows, emptyText) {
@@ -813,10 +806,149 @@ function filterHistoryRows(rows) {
   const query = elements.historySearchInput.value.trim().toLowerCase();
   if (!query) return rows || [];
   return (rows || []).filter((row) =>
-    [row.plate, row.carrier, row.carrierLabel, row.driverName, row.driverId, row.driverPhone, row.destinationSummary, row.queueGroupLabel, row.inspectorName, row.findingsSummary, row.rejectionReason]
+    [
+      row.plate,
+      getHistoryCarrierLabel(row),
+      row.driverName,
+      row.driverId,
+      row.driverPhone,
+      getHistoryDestinationSummary(row),
+      row.queueGroupLabel,
+      getHistoryInspectorName(row),
+      getHistoryFindings(row),
+      row.rejectionReason,
+      ...HISTORY_CHECKLIST_COLUMNS.map((column) => `${column.title} ${getChecklistHistoryResult(row, column.key)}`),
+    ]
       .filter(Boolean)
       .some((value) => String(value).toLowerCase().includes(query))
   );
+}
+
+function getHistoryColumns(forExport = false) {
+  const columns = [
+    ["Fecha enturnamiento", (item) => formatDateOnly(item.createdAt)],
+    ["Hora enturnamiento", (item) => formatTimeOnly(item.createdAt)],
+    ["Placa", (item) => item.plate || "-"],
+    ["Cola", (item) => item.queueGroupLabel || "-"],
+    ["Transportadora", (item) => getHistoryCarrierLabel(item)],
+    ["Conductor", (item) => item.driverName || "-"],
+    ["Cédula", (item) => item.driverId || "-"],
+    ["Celular", (item) => item.driverPhone || "-"],
+    ["P. vacío (kg)", (item) => formatNumber(item.emptyWeightKg) || "-"],
+    ["Destinos", (item) => getHistoryDestinationSummary(item)],
+    ["Turnos por ciudad", (item) => getHistoryCityTurns(item)],
+    ["Estado logística", (item) => translateLogisticsStatus(item.status)],
+    ["Estado calidad", (item) => forExport ? translateQualityStatus(item.qualityStatus || "PENDING") : qualityBadge(item.qualityStatus)],
+    ["Selfie", (item) => forExport ? getSupportText(item.driverSelfieUrl, "Selfie registrada") : renderSupportLink(item.driverSelfieUrl, "Ver selfie")],
+    ["Firma", (item) => forExport ? getSupportText(item.driverSignatureUrl, "Firma registrada") : renderSupportLink(item.driverSignatureUrl, "Ver firma")],
+    ["Inspector", (item) => getHistoryInspectorName(item)],
+    ["Fecha revisión", (item) => formatDateOnly(getHistoryReviewedAt(item)) || "-"],
+    ["Hora revisión", (item) => formatTimeOnly(getHistoryReviewedAt(item)) || "-"],
+    ["Tiempo enturnamiento vs calidad", (item) => item.reviewLeadLabel || "Pendiente"],
+    ["Hallazgos / motivo", (item) => getHistoryFindings(item)],
+  ];
+  HISTORY_CHECKLIST_COLUMNS.forEach((column) => {
+    columns.push([column.title, (item) => getChecklistHistoryResult(item, column.key)]);
+  });
+  const htmlColumns = new Set(["Estado calidad", "Selfie", "Firma"]);
+  return forExport
+    ? columns
+    : columns.map(([title, renderer]) => [
+        title,
+        (item, index) => htmlColumns.has(title) ? (renderer(item, index) ?? "") : escapeHtml(renderer(item, index)),
+      ]);
+}
+
+function exportHistoryToExcel() {
+  const rows = filterHistoryRows(state.appState?.history || []);
+  if (!rows.length) {
+    showToast("No hay registros para exportar en este informe.");
+    return;
+  }
+  const columns = getHistoryColumns(true);
+  const tableHtml = `
+    <table>
+      <thead>
+        <tr>${columns.map(([title]) => `<th>${escapeHtml(title)}</th>`).join("")}</tr>
+      </thead>
+      <tbody>
+        ${rows.map((row, index) => `
+          <tr>
+            ${columns.map(([, renderer]) => `<td>${escapeHtml(renderer(row, index) ?? "")}</td>`).join("")}
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+  const workbook = `
+    <html xmlns:o="urn:schemas-microsoft-com:office:office"
+          xmlns:x="urn:schemas-microsoft-com:office:excel"
+          xmlns="http://www.w3.org/TR/REC-html40">
+      <head>
+        <meta charset="utf-8" />
+        <style>
+          table { border-collapse: collapse; }
+          th, td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; }
+          th { background: #dbeafe; font-weight: 700; }
+        </style>
+      </head>
+      <body>${tableHtml}</body>
+    </html>
+  `;
+  const blob = new Blob([`\ufeff${workbook}`], { type: "application/vnd.ms-excel;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `historial-enturnamiento-${new Date().toISOString().slice(0, 10)}.xls`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  showToast("Informe exportado en Excel.");
+}
+
+function getHistoryCarrierLabel(item) {
+  if (item.carrierLabel) return item.carrierLabel;
+  const code = item.carrierCode ? `${item.carrierCode} - ` : "";
+  return `${code}${item.carrier || ""}`.trim() || "-";
+}
+
+function getHistoryDestinationSummary(item) {
+  if (item.destinationSummary) return item.destinationSummary;
+  if (Array.isArray(item.destinations) && item.destinations.length) {
+    return item.destinations.map((destination) => `${destination.city} - ${destination.zone}`).join(", ");
+  }
+  return renderDestinationsText(item) || "-";
+}
+
+function getHistoryCityTurns(item) {
+  const entries = Object.entries(item.cityTurns || {});
+  if (!entries.length) return "-";
+  return entries.map(([city, turn]) => `${city}: ${turn}`).join(" | ");
+}
+
+function getHistoryInspectorName(item) {
+  return item.qualityInspectorName || item.inspectorName || "-";
+}
+
+function getHistoryReviewedAt(item) {
+  return item.qualityReviewedAt || item.reviewedAt || "";
+}
+
+function getHistoryFindings(item) {
+  return item.qualityFindingsSummary || item.findingsSummary || item.qualityObservations || item.rejectionReason || "-";
+}
+
+function getChecklistHistoryResult(item, checklistKey) {
+  const checklist = item.qualityChecklist || item.checklist || {};
+  const status = checklist?.[checklistKey]?.status;
+  if (status === "CUMPLE") return "Apto";
+  if (status === "NO_CUMPLE") return "No apto";
+  return "Pendiente";
+}
+
+function getSupportText(url, labelWhenPresent) {
+  return url ? labelWhenPresent : "Sin archivo";
 }
 
 function qualityBadge(status) {

@@ -466,6 +466,14 @@ label {
 
 .search { min-width: min(420px, 100%); }
 
+.history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: end;
+  align-items: end;
+  gap: 12px;
+}
+
 /* ─── TABLE ───────────────────────────────────────────── */
 .table-wrap {
   overflow: auto;
@@ -940,6 +948,10 @@ th {
   .toolbar {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .history-actions {
+    justify-content: stretch;
   }
 
   .hero-logo,
