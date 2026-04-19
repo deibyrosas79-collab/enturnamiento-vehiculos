@@ -182,12 +182,8 @@ h3 { margin: 0; }
 }
 
 .eyebrow::before {
-  content: "";
-  display: inline-block;
-  width: 22px;
-  height: 3px;
-  background: linear-gradient(90deg, var(--primary), var(--secondary));
-  border-radius: 2px;
+  content: none;
+  display: none;
 }
 
 /* ─── CARDS / PANELS ──────────────────────────────────── */

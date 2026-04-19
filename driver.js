@@ -235,7 +235,7 @@ function renderCityQueues(cityQueues, forcedGroup = null) {
             <tbody>
               ${vehicles.map((row) => `
                 <tr>
-                  <td>${row.cityTurns?.[group.city] ? `<span class="turn">${row.cityTurns[group.city]}</span>` : "-"}</td>
+                  <td>${row.turnPosition ? `<span class="turn">${row.turnPosition}</span>` : "-"}</td>
                   <td>${row.plate}</td>
                   <td>${row.carrier}</td>
                   <td>${row.queueGroupLabel || "-"}</td>

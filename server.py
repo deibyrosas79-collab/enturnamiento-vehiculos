@@ -625,6 +625,7 @@ def build_city_turn_maps(
         for option in destination_options:
             city_key = option["city"]
             counters[city_key] = counters.get(city_key, 0) + 1
+            queue_group = row["queue_group"] or queue_group_for_carrier_code(row["carrier_code"])
             position_map.setdefault(row["id"], {})[city_key] = counters[city_key]
             city_lists.setdefault(city_key, []).append(
                 {
@@ -632,7 +633,10 @@ def build_city_turn_maps(
                     "plate": row["plate"],
                     "carrier": row["carrier"],
                     "carrierCode": row["carrier_code"],
+                    "queueGroup": queue_group,
+                    "queueGroupLabel": queue_group_label(queue_group),
                     "driverName": row["driver_name"],
+                    "qualityStatus": row["quality_status"] or QUALITY_PENDING,
                     "turnPosition": counters[city_key],
                     "zone": option["zone"],
                 }

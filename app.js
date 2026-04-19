@@ -427,12 +427,12 @@ function renderCityQueues() {
       `${rows.length} vehículo(s) visible(s) en esta ciudad.`,
       renderTable(
         [
-          ["Turno", (item) => item.cityTurns?.[group.city] ? `<span class="turn">${item.cityTurns[group.city]}</span>` : "-"],
+          ["Turno", (item) => item.turnPosition ? `<span class="turn">${item.turnPosition}</span>` : "-"],
           ["Placa", (item) => escapeHtml(item.plate)],
           ["Transportadora", (item) => escapeHtml(item.carrier)],
           ["Cola", (item) => escapeHtml(item.queueGroupLabel || "-")],
           ["Conductor", (item) => escapeHtml(item.driverName)],
-          ["Calidad", (item) => qualityBadge(item.qualityStatus)],
+          ["Calidad", (item) => qualityBadge(item.qualityStatus || "PENDING")],
         ],
         rows,
         `No hay vehículos visibles para ${group.city}.`,
