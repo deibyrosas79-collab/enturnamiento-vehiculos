@@ -31,6 +31,12 @@
 
 html { scroll-behavior: smooth; }
 
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
@@ -851,7 +857,7 @@ th {
 }
 
 .public-shell {
-  width: min(100% - 18px, 760px);
+  width: calc(100% - 16px);
   max-width: 760px;
   display: grid;
   gap: 18px;
@@ -861,6 +867,18 @@ th {
   text-align: center;
   flex-direction: column;
   align-items: center;
+}
+
+.public-hero > * {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.public-hero h1,
+.public-hero .hero-text,
+.public-hero .eyebrow {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .capture-grid {
@@ -1015,11 +1033,18 @@ th {
   .hero h1,
   .public-hero h1 { font-size: 2.1rem; }
   .nav-tab, .tab { padding: 9px 14px; font-size: .84rem; }
-  .public-shell { width: calc(100% - 12px); }
+  .public-shell { width: calc(100% - 10px); }
   .public-body input,
   .public-body select,
   .public-body textarea,
   .public-body button {
     font-size: 16px;
+  }
+  .public-hero .eyebrow {
+    font-size: .68rem;
+    letter-spacing: .18em;
+  }
+  .public-hero .hero-text {
+    font-size: .96rem;
   }
 }

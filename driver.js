@@ -65,10 +65,14 @@ async function loadConfig() {
     renderQueue(data.liveQueue || []);
     renderCityQueues(data.cityQueues || []);
     document.title = `Registro QR ${data.siteName || "conductores"}`;
+    const eyebrow = document.querySelector(".public-hero .eyebrow");
     const title = document.querySelector(".public-hero h1");
     const description = document.querySelector(".public-hero .hero-text");
+    if (eyebrow) {
+      eyebrow.textContent = `Registro QR · ${data.siteName || "Planta principal"}`;
+    }
     if (title) {
-      title.textContent = `Registro de conductores en ${data.siteName || "planta"}`;
+      title.textContent = "Registro de conductores";
     }
     if (description) {
       description.textContent = `Completa tu enturnamiento solo dentro de la sede autorizada. Debes validar GPS, tomar selfie y firmar en pantalla. Centro activo: ${data.siteName || "Planta principal"}.`;
