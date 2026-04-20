@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -)",
+      "Bash(C:/Users/deiby/.gradle/wrapper/dists/gradle-8.14-all/c2qonpi39x1mddn7hk5gh9iqj/gradle-8.14/bin/gradle wrapper *)",
+      "Bash(./gradlew assembleDebug --no-daemon)",
+      "mcp__Claude_in_Chrome__tabs_context_mcp",
+      "mcp__Claude_in_Chrome__navigate",
+      "mcp__Claude_in_Chrome__find",
+      "mcp__Claude_in_Chrome__read_page",
+      "mcp__Claude_in_Chrome__computer",
+      "mcp__Claude_in_Chrome__javascript_tool",
+      "Bash(./gradlew assembleDebug --no-daemon -q)",
+      "Bash(grep -E \"\\\\.\\(js|html|py|json\\)$\")",
+      "Bash(xargs cat *)",
+      "mcp__Claude_in_Chrome__read_network_requests",
+      "Bash(./gradlew.bat tasks *)",
+      "Bash(keytool -genkeypair -v -keystore \"C:\\\\Users\\\\deiby\\\\Downloads\\\\enturnamiento-vehiculos\\\\android-quality-app\\\\enturnamiento-release.jks\" -alias enturnamiento -keyalg RSA -keysize 2048 -validity 10000 -storepass enturnamiento123 -keypass enturnamiento123 -dname \"CN=Enturnamiento Vehiculos, OU=Mobile, O=Enturnamiento, L=Bogota, S=Cundinamarca, C=CO\")",
+      "Bash(./gradlew.bat assembleRelease)",
+      "Bash(python -m py_compile server.py)",
+      "mcp__Claude_in_Chrome__tabs_create_mcp",
+      "mcp__Claude_in_Chrome__switch_browser"
+    ]
+  }
+}

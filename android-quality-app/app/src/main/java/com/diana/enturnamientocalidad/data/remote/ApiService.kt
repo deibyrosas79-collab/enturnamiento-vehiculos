@@ -20,4 +20,7 @@ interface ApiService {
         @Path("vehicleId") vehicleId: String,
         @Body request: InspectionRequest,
     ): AppStateDto
+
+    @POST("fcm/register")
+    suspend fun registerFcmToken(@Body body: Map<String, String>): retrofit2.Response<Unit>
 }
