@@ -35,6 +35,7 @@ html,
 body {
   max-width: 100%;
   overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
@@ -867,6 +868,8 @@ th {
   text-align: center;
   flex-direction: column;
   align-items: center;
+  gap: 14px;
+  padding: 22px 20px;
 }
 
 .public-hero > * {
@@ -879,6 +882,16 @@ th {
 .public-hero .eyebrow {
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.public-hero h1 {
+  font-size: clamp(1.8rem, 6vw, 2.6rem);
+  line-height: 1.04;
+}
+
+.public-hero .hero-text {
+  margin-top: 0;
+  max-width: 34rem;
 }
 
 .capture-grid {
@@ -1029,7 +1042,7 @@ th {
   .panel,
   .modal-card { padding: 18px; }
   .hero,
-  .public-hero { padding: 22px 20px; }
+  .public-hero { padding: 16px 14px; }
   .hero h1,
   .public-hero h1 { font-size: 2.1rem; }
   .nav-tab, .tab { padding: 9px 14px; font-size: .84rem; }
@@ -1045,6 +1058,22 @@ th {
     letter-spacing: .18em;
   }
   .public-hero .hero-text {
-    font-size: .96rem;
+    font-size: .9rem;
+    line-height: 1.45;
+  }
+  .public-hero {
+    gap: 10px;
+    border-radius: 20px;
+  }
+  .public-logo {
+    display: none;
+  }
+  .gps-banner,
+  .public-shell > .panel {
+    padding: 16px 14px;
+  }
+  .gps-banner button,
+  #publicSubmitButton {
+    width: 100%;
   }
 }
