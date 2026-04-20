@@ -1041,39 +1041,64 @@ th {
   .auth-card,
   .panel,
   .modal-card { padding: 18px; }
-  .hero,
-  .public-hero { padding: 16px 14px; }
-  .hero h1,
-  .public-hero h1 { font-size: 2.1rem; }
+  .hero { padding: 16px 14px; }
+  .hero h1 { font-size: 2.1rem; }
   .nav-tab, .tab { padding: 9px 14px; font-size: .84rem; }
-  .public-shell { width: calc(100% - 10px); }
-  .public-body input,
-  .public-body select,
-  .public-body textarea,
-  .public-body button {
-    font-size: 16px;
-  }
-  .public-hero .eyebrow {
-    font-size: .68rem;
-    letter-spacing: .18em;
-  }
-  .public-hero .hero-text {
-    font-size: .9rem;
-    line-height: 1.45;
+
+  /* ── Public/Driver page mobile ── */
+  .public-shell {
+    width: calc(100% - 10px);
+    padding: 6px 0 24px;
+    gap: 10px;
   }
   .public-hero {
-    gap: 10px;
-    border-radius: 20px;
+    padding: 14px 14px 12px;
+    gap: 6px;
+    border-radius: 18px;
+    margin-bottom: 0;
   }
-  .public-logo {
-    display: none;
+  .public-hero h1 {
+    font-size: 1.25rem;
+    line-height: 1.2;
   }
-  .gps-banner,
-  .public-shell > .panel {
-    padding: 16px 14px;
+  .public-hero .eyebrow {
+    font-size: .65rem;
+    letter-spacing: .16em;
+  }
+  .public-hero .hero-text {
+    font-size: .82rem;
+    line-height: 1.4;
+    margin-top: 2px;
+  }
+  .public-logo { display: none; }
+  .public-body input,
+  .public-body select,
+  .public-body textarea {
+    font-size: 16px;
+    padding: 11px 13px;
+    min-height: 44px;
+  }
+  .public-body button { font-size: 15px; }
+  .gps-banner {
+    padding: 14px 14px;
+    gap: 8px;
   }
   .gps-banner button,
-  #publicSubmitButton {
-    width: 100%;
+  #publicSubmitButton { width: 100%; }
+  .public-shell > .panel { padding: 14px; }
+  .capture-grid { gap: 10px; }
+  .signature-canvas { min-height: 150px; }
+  .selfie-preview { min-height: 140px; }
+}
+
+@media (max-width: 400px) {
+  .public-hero {
+    padding: 10px 12px;
+    gap: 4px;
+    border-radius: 14px;
   }
+  .public-hero h1 { font-size: 1.1rem; }
+  .public-hero .hero-text { font-size: .78rem; }
+  .public-shell > .panel { padding: 12px 10px; }
+  .gps-banner { padding: 12px 10px; }
 }
