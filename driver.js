@@ -3,6 +3,7 @@
 const state = {
   gps: null,
   config: null,
+  centerId: new URLSearchParams(window.location.search).get("center") || "",
   trackingToken: localStorage.getItem("driver_tracking_token") || "",
   driverSelfieDataUrl: "",
   signatureDataUrl: "",
@@ -56,12 +57,22 @@ function bootstrap() {
 
 async function loadConfig() {
   try {
-    const data = await request("/public/config");
+    const data = await request(withCenterQuery("/public/config"));
     state.config = data;
+    state.centerId = data.centerId || state.centerId;
     populateSelect(elements.publicCarrierId, data.carriers, "Selecciona transportadora", (item) => `${item.code} - ${item.name}`);
-    populateMultiSelect(elements.publicDestinationId, data.destinations, (item) => `${item.city} - ${item.zone}`);
+    populateSelect(elements.publicDestinationId, data.destinations, "Selecciona destino", (item) => `${item.city} - ${item.zone}`);
     renderQueue(data.liveQueue || []);
     renderCityQueues(data.cityQueues || []);
+    document.title = `Registro QR ${data.siteName || "conductores"}`;
+    const title = document.querySelector(".public-hero h1");
+    const description = document.querySelector(".public-hero .hero-text");
+    if (title) {
+      title.textContent = `Registro de conductores en ${data.siteName || "planta"}`;
+    }
+    if (description) {
+      description.textContent = `Completa tu enturnamiento solo dentro de la sede autorizada. Debes validar GPS, tomar selfie y firmar en pantalla. Centro activo: ${data.siteName || "Planta principal"}.`;
+    }
     if (!data.siteConfigured) {
       setGpsStatus("Geocerca sin configurar", "Logistica debe configurar la ubicacion de planta antes de usar el registro por QR.");
     }
@@ -72,8 +83,9 @@ async function loadConfig() {
 
 async function loadQueueOnly() {
   try {
-    const data = await request("/public/config");
+    const data = await request(withCenterQuery("/public/config"));
     state.config = data;
+    state.centerId = data.centerId || state.centerId;
     renderQueue(data.liveQueue || []);
     renderCityQueues(data.cityQueues || []);
   } catch {}
@@ -83,16 +95,6 @@ function populateSelect(select, rows, placeholder, formatter) {
   select.innerHTML = "";
   select.append(new Option(placeholder, "", true, true));
   rows.forEach((row) => select.append(new Option(formatter(row), row.id)));
-}
-
-function populateMultiSelect(select, rows, formatter) {
-  const selectedValues = new Set(Array.from(select.selectedOptions || []).map((option) => option.value));
-  select.innerHTML = "";
-  rows.forEach((row) => {
-    const option = new Option(formatter(row), row.id);
-    option.selected = selectedValues.has(row.id);
-    select.append(option);
-  });
 }
 
 function requestGps() {
@@ -107,6 +109,7 @@ function requestGps() {
         lat: position.coords.latitude,
         lng: position.coords.longitude,
       };
+      detectCenterFromGps();
       setGpsStatus("Ubicacion lista", "Ahora puedes registrarte en el turno.");
       updateSubmitState();
     },
@@ -153,7 +156,7 @@ async function submitPublicRegistration(event) {
     driverSignatureDataUrl: state.signatureDataUrl,
   };
   try {
-    const data = await request("/public/register", { method: "POST", body: payload });
+    const data = await request(withCenterQuery("/public/register"), { method: "POST", body: payload });
     state.trackingToken = data.vehicle.publicTrackingToken;
     localStorage.setItem("driver_tracking_token", state.trackingToken);
     elements.publicVehicleForm.reset();
@@ -416,6 +419,37 @@ function fileToDataUrl(file) {
 function setGpsStatus(title, text) {
   elements.gpsStatusTitle.textContent = title;
   elements.gpsStatusText.textContent = text;
+}
+
+function withCenterQuery(path) {
+  if (!state.centerId) return path;
+  return `${path}${path.includes("?") ? "&" : "?"}center=${encodeURIComponent(state.centerId)}`;
+}
+
+function detectCenterFromGps() {
+  if (!state.gps || !Array.isArray(state.config?.centers)) return;
+  const matches = state.config.centers
+    .map((center) => ({
+      center,
+      distance: haversineDistance(state.gps.lat, state.gps.lng, Number(center.siteLat), Number(center.siteLng)),
+    }))
+    .filter((item) => Number.isFinite(item.distance) && item.distance <= Number(item.center.siteRadiusM || 180))
+    .sort((left, right) => left.distance - right.distance);
+  const matchedCenter = matches[0];
+  if (!matchedCenter || matchedCenter.center.id === state.centerId) return;
+  state.centerId = matchedCenter.center.id;
+  loadConfig();
+}
+
+function haversineDistance(lat1, lng1, lat2, lng2) {
+  const toRad = (value) => (value * Math.PI) / 180;
+  const radius = 6371000;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return radius * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
 async function request(path, options = {}) {

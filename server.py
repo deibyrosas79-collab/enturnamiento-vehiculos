@@ -20,7 +20,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -105,6 +105,12 @@ DEFAULT_SETTINGS = {
     "site_radius_m": "180",
     "geofence_enabled": "1",
 }
+
+DEFAULT_CENTER_ID = "1010"
+INITIAL_CENTERS = [
+    ("1010", "1010", "Yopal centro 1010", "5.286142", "-72.402228", "180", "1"),
+    ("1000", "1000", "Espinal centro 1000", "4.158676", "-74.900485", "180", "1"),
+]
 
 
 class AppError(Exception):
@@ -276,6 +282,19 @@ def init_db() -> None:
             CREATE UNIQUE INDEX IF NOT EXISTS idx_carriers_name
             ON carriers (LOWER(name));
 
+            CREATE TABLE IF NOT EXISTS centers (
+                id TEXT PRIMARY KEY,
+                code TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL,
+                site_lat TEXT NOT NULL,
+                site_lng TEXT NOT NULL,
+                site_radius_m TEXT NOT NULL,
+                geofence_enabled TEXT NOT NULL DEFAULT '1',
+                created_at TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_centers_name
+            ON centers (LOWER(name));
+
             CREATE TABLE IF NOT EXISTS vehicles (
                 id TEXT PRIMARY KEY,
                 plate TEXT NOT NULL,
@@ -341,7 +360,9 @@ def init_db() -> None:
         )
         ensure_vehicle_columns(db)
         ensure_user_roles_schema(db)
+        ensure_center_columns(db)
         seed_settings(db)
+        seed_centers(db)
         seed_destinations(db)
         seed_carriers(db)
         seed_users(db)
@@ -368,6 +389,9 @@ def ensure_vehicle_columns(db: sqlite3.Connection) -> None:
         "quality_status": "TEXT DEFAULT 'PENDING'",
         "public_tracking_token": "TEXT",
         "last_quality_at": "TEXT",
+        "center_id": "TEXT",
+        "center_code": "TEXT",
+        "center_name": "TEXT",
     }
     for column_name, column_type in extra_columns.items():
         if column_name not in columns:
@@ -401,11 +425,33 @@ def ensure_vehicle_columns(db: sqlite3.Connection) -> None:
         "UPDATE vehicles SET public_tracking_token = ? WHERE public_tracking_token IS NULL OR public_tracking_token = ''",
         (create_id(),),
     )
+    db.execute(
+        "UPDATE vehicles SET center_id = ?, center_code = ?, center_name = ? WHERE center_id IS NULL OR center_id = ''",
+        (DEFAULT_CENTER_ID, DEFAULT_CENTER_ID, "Yopal centro 1010"),
+    )
     compact_queue(db)
 
 
 def ensure_user_roles_schema(db: _Conn) -> None:
     pass  # PostgreSQL crea las tablas con los constraints correctos desde el inicio
+
+
+def ensure_center_columns(db: sqlite3.Connection) -> None:
+    user_columns = {row["name"] for row in db.execute(
+        "SELECT column_name AS name FROM information_schema.columns "
+        "WHERE table_name = 'users' AND table_schema = current_schema()"
+    ).fetchall()}
+    for column_name, column_type in {
+        "center_id": "TEXT",
+        "center_code": "TEXT",
+        "center_name": "TEXT",
+    }.items():
+        if column_name not in user_columns:
+            db.execute(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {column_name} {column_type}")
+    db.execute(
+        "UPDATE users SET center_id = ?, center_code = ?, center_name = ? WHERE center_id IS NULL OR center_id = ''",
+        (DEFAULT_CENTER_ID, DEFAULT_CENTER_ID, "Yopal centro 1010"),
+    )
 
 
 def seed_settings(db: sqlite3.Connection) -> None:
@@ -417,6 +463,18 @@ def seed_settings(db: sqlite3.Connection) -> None:
             current = db.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
             if current and not clean_text(current["value"]):
                 db.execute("UPDATE settings SET value = ? WHERE key = ?", (value, key))
+
+
+def seed_centers(db: sqlite3.Connection) -> None:
+    if db.execute("SELECT COUNT(*) FROM centers").fetchone()[0]:
+        return
+    db.executemany(
+        """
+        INSERT INTO centers (id, code, name, site_lat, site_lng, site_radius_m, geofence_enabled, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [(center_id, code, name, lat, lng, radius, enabled, now_iso()) for center_id, code, name, lat, lng, radius, enabled in INITIAL_CENTERS],
+    )
 
 
 def seed_destinations(db: sqlite3.Connection) -> None:
@@ -447,10 +505,20 @@ def seed_users(db: sqlite3.Connection) -> None:
             continue
         db.execute(
             """
-            INSERT INTO users (id, username, full_name, role, password_hash, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO users (id, username, full_name, role, password_hash, created_at, center_id, center_code, center_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (create_id(), username, full_name, role, hash_password(password), now_iso()),
+            (
+                create_id(),
+                username,
+                full_name,
+                role,
+                hash_password(password),
+                now_iso(),
+                DEFAULT_CENTER_ID,
+                DEFAULT_CENTER_ID,
+                "Yopal centro 1010",
+            ),
         )
 
 
@@ -520,6 +588,47 @@ def serialize_destination(row: sqlite3.Row) -> Dict[str, Any]:
 
 def serialize_carrier(row: sqlite3.Row) -> Dict[str, Any]:
     return {"id": row["id"], "code": row["code"], "name": row["name"]}
+
+
+def serialize_center(row: sqlite3.Row) -> Dict[str, Any]:
+    return {
+        "id": row["id"],
+        "code": row["code"],
+        "name": row["name"],
+        "siteLat": row["site_lat"],
+        "siteLng": row["site_lng"],
+        "siteRadiusM": row["site_radius_m"],
+        "geofenceEnabled": clean_text(row["geofence_enabled"]) == "1",
+    }
+
+
+def load_centers(db: sqlite3.Connection) -> List[Dict[str, Any]]:
+    return [serialize_center(row) for row in db.execute("SELECT * FROM centers ORDER BY code").fetchall()]
+
+
+def build_center_lookup(centers: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    return {item["id"]: item for item in centers}
+
+
+def visible_center_ids_for_user(user: sqlite3.Row, centers: List[Dict[str, Any]]) -> List[str]:
+    if user["role"] == ROLE_ADMIN:
+        return [center["id"] for center in centers]
+    center_id = clean_text(user.get("center_id")) if isinstance(user, dict) else clean_text(user["center_id"])
+    return [center_id or DEFAULT_CENTER_ID]
+
+
+def preferred_center_for_user(user: sqlite3.Row, centers: List[Dict[str, Any]]) -> Dict[str, Any]:
+    center_lookup = build_center_lookup(centers)
+    center_id = clean_text(user.get("center_id")) if isinstance(user, dict) else clean_text(user["center_id"])
+    return center_lookup.get(center_id) or (centers[0] if centers else {
+        "id": DEFAULT_CENTER_ID,
+        "code": DEFAULT_CENTER_ID,
+        "name": "Yopal centro 1010",
+        "siteLat": DEFAULT_SETTINGS["site_lat"],
+        "siteLng": DEFAULT_SETTINGS["site_lng"],
+        "siteRadiusM": DEFAULT_SETTINGS["site_radius_m"],
+        "geofenceEnabled": True,
+    })
 
 
 def parse_json_field(value: Optional[str], default: Any) -> Any:
@@ -663,6 +772,9 @@ def serialize_vehicle(
         "carrierId": row["carrier_id"],
         "carrierCode": row["carrier_code"],
         "carrier": row["carrier"],
+        "centerId": row["center_id"],
+        "centerCode": row["center_code"],
+        "centerName": row["center_name"],
         "queueGroup": row["queue_group"] or queue_group_for_carrier_code(row["carrier_code"]),
         "queueGroupLabel": queue_group_label(row["queue_group"] or queue_group_for_carrier_code(row["carrier_code"])),
         "driverName": row["driver_name"],
@@ -793,7 +905,10 @@ def build_history_rows(
 
 def get_user_state(user: sqlite3.Row, origin: str) -> Dict[str, Any]:
     with get_connection() as db:
-        settings = get_settings_map(db)
+        centers = load_centers(db)
+        center_lookup = build_center_lookup(centers)
+        visible_center_ids = visible_center_ids_for_user(user, centers)
+        preferred_center = preferred_center_for_user(user, centers)
         destinations = [
             serialize_destination(row)
             for row in db.execute("SELECT * FROM destinations ORDER BY zone, city").fetchall()
@@ -803,8 +918,10 @@ def get_user_state(user: sqlite3.Row, origin: str) -> Dict[str, Any]:
             serialize_carrier(row)
             for row in db.execute("SELECT * FROM carriers ORDER BY name").fetchall()
         ]
+        placeholders = ",".join("?" for _ in visible_center_ids)
         vehicles = db.execute(
-            "SELECT * FROM vehicles ORDER BY CASE status WHEN 'QUEUED' THEN 0 WHEN 'ASSIGNED' THEN 1 ELSE 2 END, queue_position, created_at DESC"
+            f"SELECT * FROM vehicles WHERE center_id IN ({placeholders}) ORDER BY CASE status WHEN 'QUEUED' THEN 0 WHEN 'ASSIGNED' THEN 1 ELSE 2 END, queue_position, created_at DESC",
+            visible_center_ids,
         ).fetchall()
         queued_rows = [row for row in vehicles if row["status"] == QUEUE_STATUS_ACTIVE]
         turn_positions = calculate_turn_positions(queued_rows)
@@ -834,13 +951,17 @@ def get_user_state(user: sqlite3.Row, origin: str) -> Dict[str, Any]:
                 "fullName": row["full_name"],
                 "role": row["role"],
                 "active": bool(row["active"]),
+                "centerId": row["center_id"],
+                "centerCode": row["center_code"],
+                "centerName": row["center_name"],
             }
             for row in db.execute("SELECT * FROM users ORDER BY role, full_name").fetchall()
         ]
         inspection_rows = db.execute(
             "SELECT * FROM quality_inspections ORDER BY reviewed_at DESC, created_at DESC"
         ).fetchall()
-        inspections = [serialize_inspection(row) for row in inspection_rows]
+        visible_vehicle_ids = {vehicle["id"] for vehicle in queued + assigned + rejected}
+        inspections = [serialize_inspection(row) for row in inspection_rows if row["vehicle_id"] in visible_vehicle_ids]
 
     quality_pending = [vehicle for vehicle in queued if vehicle["qualityStatus"] in {QUALITY_PENDING, QUALITY_IN_PROGRESS}]
     quality_rework = [vehicle for vehicle in queued if vehicle["qualityStatus"] == QUALITY_REWORK]
@@ -859,13 +980,15 @@ def get_user_state(user: sqlite3.Row, origin: str) -> Dict[str, Any]:
     queued_diana = [vehicle for vehicle in queued if vehicle["queueGroup"] == QUEUE_GROUP_DIANA]
     history_rows = build_history_rows(queued + assigned + rejected, inspections_by_vehicle)
     site_config = {
-        "siteName": settings.get("site_name", ""),
-        "siteLat": settings.get("site_lat", DEFAULT_SETTINGS["site_lat"]),
-        "siteLng": settings.get("site_lng", DEFAULT_SETTINGS["site_lng"]),
-        "siteRadiusM": settings.get("site_radius_m", "180"),
-        "geofenceEnabled": settings.get("geofence_enabled", "1") == "1",
+        "siteName": preferred_center["name"],
+        "siteLat": preferred_center["siteLat"],
+        "siteLng": preferred_center["siteLng"],
+        "siteRadiusM": preferred_center["siteRadiusM"],
+        "geofenceEnabled": preferred_center["geofenceEnabled"],
+        "centerId": preferred_center["id"],
+        "centerCode": preferred_center["code"],
     }
-    registration_url = f"{origin}/driver.html"
+    registration_url = f"{origin}/driver.html?center={preferred_center['id']}"
     qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=280x280&data={registration_url}"
 
     return {
@@ -874,7 +997,11 @@ def get_user_state(user: sqlite3.Row, origin: str) -> Dict[str, Any]:
             "username": user["username"],
             "fullName": user["full_name"],
             "role": user["role"],
+            "centerId": user["center_id"],
+            "centerCode": user["center_code"],
+            "centerName": user["center_name"],
         },
+        "centers": centers,
         "destinations": destinations,
         "carriers": carriers,
         "queued": queued,
@@ -940,6 +1067,7 @@ def create_vehicle(
     gps_lat: Optional[float],
     gps_lng: Optional[float],
     gps_distance_m: Optional[float],
+    center_id: Optional[str],
 ) -> Dict[str, Any]:
     plate = normalize_plate(payload.get("plate"))
     carrier_id = clean_text(payload.get("carrierId"))
@@ -970,6 +1098,9 @@ def create_vehicle(
             raise AppError("Debes firmar en pantalla para completar el registro.", 400)
 
     with get_connection() as db:
+        center = db.execute("SELECT * FROM centers WHERE id = ?", (clean_text(center_id) or DEFAULT_CENTER_ID,)).fetchone()
+        if not center:
+            raise AppError("El centro seleccionado no existe.", 404)
         destination = db.execute("SELECT * FROM destinations WHERE id = ?", (destination_id,)).fetchone()
         if not destination:
             raise AppError("El destino seleccionado no existe.", 404)
@@ -1020,9 +1151,9 @@ def create_vehicle(
             INSERT INTO vehicles (
                 id, plate, carrier_id, carrier_code, carrier, driver_name, driver_id, driver_phone,
                 empty_weight_kg, driver_selfie_url, driver_signature_url, destination_ids_json, destination_id, city, zone,
-                queue_group, status, quality_status, queue_position, created_at, registration_channel, gps_lat, gps_lng,
+                center_id, center_code, center_name, queue_group, status, quality_status, queue_position, created_at, registration_channel, gps_lat, gps_lng,
                 gps_distance_m, public_tracking_token
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 vehicle_id,
@@ -1040,6 +1171,9 @@ def create_vehicle(
                 destination["id"],
                 destination["city"],
                 destination["zone"],
+                center["id"],
+                center["code"],
+                center["name"],
                 queue_group,
                 QUEUE_STATUS_ACTIVE,
                 QUALITY_PENDING,
@@ -1167,22 +1301,36 @@ def add_user(payload: Dict[str, Any]) -> None:
     full_name = clean_text(payload.get("fullName"))
     role = clean_text(payload.get("role")).upper()
     password = str(payload.get("password") or "").strip()
-    if not all([username, full_name, role, password]):
-        raise AppError("Usuario, nombre, rol y clave son obligatorios.", 400)
+    center_id = clean_text(payload.get("centerId")) or DEFAULT_CENTER_ID
+    if not all([username, full_name, role, password, center_id]):
+        raise AppError("Usuario, nombre, rol, centro y clave son obligatorios.", 400)
     if role not in VALID_ROLES:
         raise AppError("El rol indicado no es valido.", 400)
     if len(password) < 8:
         raise AppError("La clave debe tener al menos 8 caracteres.", 400)
     with get_connection() as db:
+        center = db.execute("SELECT * FROM centers WHERE id = ?", (center_id,)).fetchone()
+        if not center:
+            raise AppError("El centro seleccionado no existe.", 404)
         exists = db.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
         if exists:
             raise AppError("Ese usuario ya existe.", 409)
         db.execute(
             """
-            INSERT INTO users (id, username, full_name, role, password_hash, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO users (id, username, full_name, role, password_hash, created_at, center_id, center_code, center_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (create_id(), username, full_name, role, hash_password(password), now_iso()),
+            (
+                create_id(),
+                username,
+                full_name,
+                role,
+                hash_password(password),
+                now_iso(),
+                center["id"],
+                center["code"],
+                center["name"],
+            ),
         )
 
 
@@ -1192,13 +1340,17 @@ def update_user(user_id: str, payload: Dict[str, Any]) -> None:
     role = clean_text(payload.get("role")).upper()
     password = str(payload.get("password") or "").strip()
     active = bool(payload.get("active", True))
-    if not all([username, full_name, role]):
-        raise AppError("Usuario, nombre y rol son obligatorios.", 400)
+    center_id = clean_text(payload.get("centerId")) or DEFAULT_CENTER_ID
+    if not all([username, full_name, role, center_id]):
+        raise AppError("Usuario, nombre, rol y centro son obligatorios.", 400)
     if role not in VALID_ROLES:
         raise AppError("El rol indicado no es válido.", 400)
     if password and len(password) < 8:
         raise AppError("La clave debe tener al menos 8 caracteres.", 400)
     with get_connection() as db:
+        center = db.execute("SELECT * FROM centers WHERE id = ?", (center_id,)).fetchone()
+        if not center:
+            raise AppError("El centro seleccionado no existe.", 404)
         user = db.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
         if not user:
             raise AppError("El usuario no existe.", 404)
@@ -1211,10 +1363,20 @@ def update_user(user_id: str, payload: Dict[str, Any]) -> None:
         db.execute(
             """
             UPDATE users
-            SET username = ?, full_name = ?, role = ?, password_hash = ?, active = ?
+            SET username = ?, full_name = ?, role = ?, password_hash = ?, active = ?, center_id = ?, center_code = ?, center_name = ?
             WHERE id = ?
             """,
-            (username, full_name, role, password_hash, 1 if active else 0, user_id),
+            (
+                username,
+                full_name,
+                role,
+                password_hash,
+                1 if active else 0,
+                center["id"],
+                center["code"],
+                center["name"],
+                user_id,
+            ),
         )
 
 
@@ -1261,6 +1423,7 @@ def update_vehicle(vehicle_id: str, payload: Dict[str, Any]) -> None:
     new_status = clean_text(payload.get("status")).upper()
     quality_status = clean_text(payload.get("qualityStatus")).upper()
     rejection_reason = clean_text(payload.get("rejectionReason"))
+    center_id = clean_text(payload.get("centerId"))
 
     destination_ids = [clean_text(destination_id)] if destination_id else []
     if isinstance(destination_ids_payload, list):
@@ -1283,6 +1446,12 @@ def update_vehicle(vehicle_id: str, payload: Dict[str, Any]) -> None:
         vehicle = db.execute("SELECT * FROM vehicles WHERE id = ?", (vehicle_id,)).fetchone()
         if not vehicle:
             raise AppError("El vehículo no existe.", 404)
+        center = db.execute(
+            "SELECT * FROM centers WHERE id = ?",
+            (center_id or clean_text(vehicle["center_id"]) or DEFAULT_CENTER_ID,),
+        ).fetchone()
+        if not center:
+            raise AppError("El centro seleccionado no existe.", 404)
 
         destination = db.execute("SELECT * FROM destinations WHERE id = ?", (destination_id,)).fetchone()
         if not destination:
@@ -1355,7 +1524,7 @@ def update_vehicle(vehicle_id: str, payload: Dict[str, Any]) -> None:
             """
             UPDATE vehicles
             SET plate = ?, carrier_id = ?, carrier_code = ?, carrier = ?, driver_name = ?, driver_id = ?, driver_phone = ?,
-                empty_weight_kg = ?, destination_ids_json = ?, destination_id = ?, city = ?, zone = ?, queue_group = ?,
+                empty_weight_kg = ?, destination_ids_json = ?, destination_id = ?, city = ?, zone = ?, center_id = ?, center_code = ?, center_name = ?, queue_group = ?,
                 status = ?, quality_status = ?, queue_position = ?, assigned_at = ?, rejected_at = ?, rejection_reason = ?,
                 last_quality_at = ?
             WHERE id = ?
@@ -1373,6 +1542,9 @@ def update_vehicle(vehicle_id: str, payload: Dict[str, Any]) -> None:
                 destination["id"],
                 destination["city"],
                 destination["zone"],
+                center["id"],
+                center["code"],
+                center["name"],
                 queue_group,
                 new_status,
                 quality_status,
@@ -1397,12 +1569,13 @@ def delete_vehicle_record(vehicle_id: str) -> None:
         compact_queue(db)
 
 
-def update_site_settings(payload: Dict[str, Any]) -> None:
+def update_site_settings(payload: Dict[str, Any], user: sqlite3.Row) -> None:
     site_name = clean_text(payload.get("siteName")) or "Planta principal"
     site_lat = clean_text(payload.get("siteLat")) or DEFAULT_SETTINGS["site_lat"]
     site_lng = clean_text(payload.get("siteLng")) or DEFAULT_SETTINGS["site_lng"]
     radius_value = parse_float(payload.get("siteRadiusM"))
     geofence_enabled = "1" if payload.get("geofenceEnabled", True) else "0"
+    center_id = clean_text(payload.get("centerId")) or clean_text(user["center_id"]) or DEFAULT_CENTER_ID
 
     if site_lat:
         parse_float(site_lat)
@@ -1412,15 +1585,16 @@ def update_site_settings(payload: Dict[str, Any]) -> None:
         raise AppError("El radio GPS debe ser mayor a cero.", 400)
 
     with get_connection() as db:
-        set_settings_values(
-            db,
-            {
-                "site_name": site_name,
-                "site_lat": site_lat,
-                "site_lng": site_lng,
-                "site_radius_m": str(int(radius_value)),
-                "geofence_enabled": geofence_enabled,
-            },
+        center = db.execute("SELECT * FROM centers WHERE id = ?", (center_id,)).fetchone()
+        if not center:
+            raise AppError("El centro seleccionado no existe.", 404)
+        db.execute(
+            """
+            UPDATE centers
+            SET name = ?, site_lat = ?, site_lng = ?, site_radius_m = ?, geofence_enabled = ?
+            WHERE id = ?
+            """,
+            (site_name, site_lat, site_lng, str(int(radius_value)), geofence_enabled, center_id),
         )
 
 
@@ -1434,30 +1608,47 @@ def haversine_distance_m(lat1: float, lng1: float, lat2: float, lng2: float) -> 
     return radius * (2 * math.atan2(math.sqrt(a), math.sqrt(1 - a)))
 
 
-def validate_geofence(payload: Dict[str, Any]) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+def detect_center_by_coordinates(
+    gps_lat: float,
+    gps_lng: float,
+    preferred_center_id: Optional[str] = None,
+) -> Tuple[Dict[str, Any], float]:
+    with get_connection() as db:
+        centers = load_centers(db)
+    ordered_centers = centers
+    if preferred_center_id:
+        ordered_centers = sorted(centers, key=lambda item: 0 if item["id"] == preferred_center_id else 1)
+    matches: List[Tuple[Dict[str, Any], float]] = []
+    for center in ordered_centers:
+        if not center["geofenceEnabled"]:
+            continue
+        distance = haversine_distance_m(
+            gps_lat,
+            gps_lng,
+            parse_float(center["siteLat"]) or 0.0,
+            parse_float(center["siteLng"]) or 0.0,
+        )
+        radius = parse_float(center["siteRadiusM"]) or 180.0
+        if distance <= radius:
+            matches.append((center, distance))
+    if not matches:
+        raise AppError("Estas fuera del radio permitido de los centros configurados.", 409)
+    matches.sort(key=lambda item: item[1])
+    return matches[0]
+
+
+def validate_geofence(payload: Dict[str, Any], preferred_center_id: Optional[str] = None) -> Tuple[Optional[float], Optional[float], Optional[float], Dict[str, Any]]:
     gps_lat = parse_float(payload.get("gpsLat"))
     gps_lng = parse_float(payload.get("gpsLng"))
-    with get_connection() as db:
-        settings = get_settings_map(db)
-    enabled = settings.get("geofence_enabled", "1") == "1"
-    if not enabled:
-        return gps_lat, gps_lng, None
-    if not settings.get("site_lat") or not settings.get("site_lng"):
-        raise AppError("La geocerca aun no esta configurada por logistica.", 409)
     if gps_lat is None or gps_lng is None:
         raise AppError("Debes habilitar el GPS para registrarte en planta.", 409)
-    site_lat = parse_float(settings.get("site_lat")) or 0.0
-    site_lng = parse_float(settings.get("site_lng")) or 0.0
-    radius = parse_float(settings.get("site_radius_m")) or 180.0
-    distance = haversine_distance_m(gps_lat, gps_lng, site_lat, site_lng)
-    if distance > radius:
-        raise AppError(f"Estas fuera del radio permitido de planta. Distancia detectada: {int(distance)} m.", 409)
-    return gps_lat, gps_lng, distance
+    center, distance = detect_center_by_coordinates(gps_lat, gps_lng, preferred_center_id)
+    return gps_lat, gps_lng, distance, center
 
 
-def public_register(payload: Dict[str, Any]) -> Dict[str, Any]:
-    gps_lat, gps_lng, gps_distance = validate_geofence(payload)
-    created = create_vehicle(payload, "QR", gps_lat, gps_lng, gps_distance)
+def public_register(payload: Dict[str, Any], preferred_center_id: Optional[str] = None) -> Dict[str, Any]:
+    gps_lat, gps_lng, gps_distance, center = validate_geofence(payload, preferred_center_id)
+    created = create_vehicle(payload, "QR", gps_lat, gps_lng, gps_distance, center["id"])
     return build_public_tracking(created["trackingToken"])
 
 
@@ -1476,7 +1667,8 @@ def build_public_tracking(token: str) -> Dict[str, Any]:
             ]
         )
         queued_rows = db.execute(
-            "SELECT * FROM vehicles WHERE status = 'QUEUED' ORDER BY queue_position, created_at"
+            "SELECT * FROM vehicles WHERE status = 'QUEUED' AND center_id = ? ORDER BY queue_position, created_at",
+            (vehicle["center_id"],),
         ).fetchall()
         queue_group = vehicle["queue_group"] or queue_group_for_carrier_code(vehicle["carrier_code"])
         queue_group_rows = [
@@ -1496,12 +1688,15 @@ def build_public_tracking(token: str) -> Dict[str, Any]:
             if front_vehicle
             else None
         ),
+        "centerName": vehicle["center_name"],
     }
 
 
-def get_public_config(origin: str) -> Dict[str, Any]:
+def get_public_config(origin: str, center_id: Optional[str] = None) -> Dict[str, Any]:
     with get_connection() as db:
-        settings = get_settings_map(db)
+        centers = load_centers(db)
+        center_lookup = build_center_lookup(centers)
+        center = center_lookup.get(clean_text(center_id) or DEFAULT_CENTER_ID) or preferred_center_for_user(_Row({"center_id": DEFAULT_CENTER_ID}), centers)
         carriers = [
             serialize_carrier(row)
             for row in db.execute("SELECT * FROM carriers ORDER BY name").fetchall()
@@ -1512,21 +1707,25 @@ def get_public_config(origin: str) -> Dict[str, Any]:
         ]
         destination_lookup = build_destination_lookup(destinations)
         queued_rows = db.execute(
-            "SELECT * FROM vehicles WHERE status = 'QUEUED' ORDER BY queue_position, created_at"
+            "SELECT * FROM vehicles WHERE status = 'QUEUED' AND center_id = ? ORDER BY queue_position, created_at",
+            (center["id"],),
         ).fetchall()
         turn_positions = calculate_turn_positions(queued_rows)
         city_turn_map, city_queue_lists = build_city_turn_maps(queued_rows, destination_lookup)
         latest_inspections = load_latest_inspections(db)
     return {
-        "siteName": settings.get("site_name", ""),
-        "geofenceEnabled": settings.get("geofence_enabled", "1") == "1",
-        "siteConfigured": bool(settings.get("site_lat") and settings.get("site_lng")),
-        "siteRadiusM": settings.get("site_radius_m", "180"),
-        "registrationUrl": f"{origin}/driver.html",
+        "siteName": center["name"],
+        "centerId": center["id"],
+        "centerCode": center["code"],
+        "geofenceEnabled": center["geofenceEnabled"],
+        "siteConfigured": bool(center["siteLat"] and center["siteLng"]),
+        "siteRadiusM": center["siteRadiusM"],
+        "registrationUrl": f"{origin}/driver.html?center={center['id']}",
         "carriers": carriers,
         "destinations": destinations,
-        "defaultSiteLat": settings.get("site_lat", DEFAULT_SETTINGS["site_lat"]),
-        "defaultSiteLng": settings.get("site_lng", DEFAULT_SETTINGS["site_lng"]),
+        "defaultSiteLat": center["siteLat"],
+        "defaultSiteLng": center["siteLng"],
+        "centers": centers,
         "cityQueues": [
             {"city": city, "vehicles": rows}
             for city, rows in sorted(city_queue_lists.items(), key=lambda item: item[0])
@@ -1645,6 +1844,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        query = parse_qs(parsed.query)
         try:
             if parsed.path == "/healthz":
                 self.send_json({"status": "ok", "time": now_iso()})
@@ -1662,7 +1862,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(get_user_state(user, self.request_origin()))
                 return
             if parsed.path == "/api/public/config":
-                self.send_json(get_public_config(self.request_origin()))
+                self.send_json(get_public_config(self.request_origin(), first_query_value(query, "center")))
                 return
             if parsed.path.startswith("/api/public/tracking/"):
                 token = parsed.path.rsplit("/", 1)[-1]
@@ -1682,6 +1882,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+        query = parse_qs(parsed.query)
         try:
             payload = self.read_json()
 
@@ -1692,7 +1893,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.logout()
                 return
             if parsed.path == "/api/public/register":
-                self.send_json(public_register(payload), 201)
+                self.send_json(public_register(payload, first_query_value(query, "center")), 201)
                 return
 
             user = self.require_user()
@@ -1701,7 +1902,7 @@ class Handler(BaseHTTPRequestHandler):
 
             if parsed.path == "/api/settings/site":
                 self.require_role(user, ROLE_ADMIN)
-                update_site_settings(payload)
+                update_site_settings(payload, user)
                 self.send_json(get_user_state(user, self.request_origin()))
                 return
             if parsed.path == "/api/destinations":
@@ -1721,7 +1922,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/vehicles":
                 self.require_any_role(user, {ROLE_ADMIN, ROLE_LOGISTICS})
-                create_vehicle(payload, "DESK", None, None, None)
+                create_vehicle(payload, "DESK", None, None, None, user["center_id"])
                 self.send_json(get_user_state(user, self.request_origin()), 201)
                 return
 
@@ -1898,6 +2099,9 @@ class Handler(BaseHTTPRequestHandler):
             "username": user["username"],
             "fullName": user["full_name"],
             "role": user["role"],
+            "centerId": user.get("center_id") if isinstance(user, dict) else user["center_id"],
+            "centerCode": user.get("center_code") if isinstance(user, dict) else user["center_code"],
+            "centerName": user.get("center_name") if isinstance(user, dict) else user["center_name"],
         }
 
     def read_json(self) -> Dict[str, Any]:
@@ -1976,6 +2180,11 @@ def parse_entity_delete(path: str, entity_name: str) -> Optional[str]:
 
 def parse_entity_id(path: str, entity_name: str) -> Optional[str]:
     return parse_entity_delete(path, entity_name)
+
+
+def first_query_value(query: Dict[str, List[str]], key: str) -> Optional[str]:
+    values = query.get(key) or []
+    return clean_text(values[0]) if values else None
 
 
 def main() -> None:

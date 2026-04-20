@@ -61,6 +61,7 @@ const elements = {
   destinationSelect: document.querySelector("#destinationId"),
   editCarrierSelect: document.querySelector("#editCarrierId"),
   editDestinationSelect: document.querySelector("#editDestinationIds"),
+  editCenterSelect: document.querySelector("#editCenterId"),
   searchInput: document.querySelector("#searchInput"),
   historySearchInput: document.querySelector("#historySearchInput"),
   exportHistoryButton: document.querySelector("#exportHistoryButton"),
@@ -71,6 +72,7 @@ const elements = {
   destinationForm: document.querySelector("#destinationForm"),
   carrierForm: document.querySelector("#carrierForm"),
   userForm: document.querySelector("#userForm"),
+  newCenterSelect: document.querySelector("#newCenterId"),
   destinationSubmitButton: document.querySelector("#destinationSubmitButton"),
   cancelDestinationEditButton: document.querySelector("#cancelDestinationEditButton"),
   carrierSubmitButton: document.querySelector("#carrierSubmitButton"),
@@ -78,6 +80,7 @@ const elements = {
   userSubmitButton: document.querySelector("#userSubmitButton"),
   cancelUserEditButton: document.querySelector("#cancelUserEditButton"),
   siteForm: document.querySelector("#siteForm"),
+  siteCenterSelect: document.querySelector("#siteCenterId"),
   destinationsTable: document.querySelector("#destinationsTable"),
   carriersTable: document.querySelector("#carriersTable"),
   usersTable: document.querySelector("#usersTable"),
@@ -175,6 +178,7 @@ function bindEvents() {
   elements.cancelCarrierEditButton?.addEventListener("click", resetCarrierForm);
   elements.cancelUserEditButton?.addEventListener("click", resetUserForm);
   elements.siteForm.addEventListener("submit", submitSiteConfig);
+  elements.siteCenterSelect?.addEventListener("change", () => applySiteSettingsFromCenter(elements.siteCenterSelect.value));
   elements.searchInput.addEventListener("input", () => {
     renderQueueTables();
     renderCityQueues();
@@ -282,18 +286,22 @@ function renderApp() {
     settings,
     destinations,
     carriers,
+    centers,
     users,
     analytics,
     permissions,
   } = state.appState;
   elements.welcomeText.textContent = `Hola, ${user.fullName}`;
-  elements.roleText.textContent = `Rol activo: ${translateRole(user.role)}`;
+  elements.roleText.textContent = `Rol activo: ${translateRole(user.role)}${user.centerName ? ` · ${user.centerName}` : ""}`;
   applyRoleVisibility(permissions);
   switchView(getFirstAllowedView(user.role === "CALIDAD" ? "quality" : state.currentView, permissions));
   populateSelect(elements.carrierSelect, carriers, "Selecciona transportadora", (item) => `${item.code} - ${item.name}`);
-  populateMultiSelect(elements.destinationSelect, destinations, (item) => `${item.city} - ${item.zone}`);
+  populateSelect(elements.destinationSelect, destinations, "Selecciona destino", (item) => `${item.city} - ${item.zone}`);
   populateSelect(elements.editCarrierSelect, carriers, "Selecciona transportadora", (item) => `${item.code} - ${item.name}`);
-  populateMultiSelect(elements.editDestinationSelect, destinations, (item) => `${item.city} - ${item.zone}`);
+  populateSelect(elements.editDestinationSelect, destinations, "Selecciona destino", (item) => `${item.city} - ${item.zone}`);
+  populateSelect(elements.newCenterSelect, centers || [], "Selecciona centro / CEDI", (item) => `${item.code} - ${item.name}`);
+  populateSelect(elements.editCenterSelect, centers || [], "Selecciona centro / CEDI", (item) => `${item.code} - ${item.name}`);
+  populateSelect(elements.siteCenterSelect, centers || [], "Selecciona centro / CEDI", (item) => `${item.code} - ${item.name}`);
   elements.publicRegistrationUrl.value = state.appState.publicRegistrationUrl;
   elements.publicQrImage.src = state.appState.publicQrUrl;
   elements.countQueued.textContent = analytics.queuedCount ?? queued.length;
@@ -304,11 +312,16 @@ function renderApp() {
   elements.qualityReworkCount.textContent = quality.rework.length;
   elements.qualityApprovedCount.textContent = quality.dailyApprovedCount ?? 0;
   elements.qualityRejectedCount.textContent = quality.dailyRejectedCount ?? 0;
-  elements.siteName.value = settings.siteName || "Planta principal";
-  elements.siteLat.value = settings.siteLat || "5.286142";
-  elements.siteLng.value = settings.siteLng || "-72.402228";
-  elements.siteRadiusM.value = settings.siteRadiusM || "180";
-  elements.geofenceEnabled.checked = settings.geofenceEnabled;
+  if (elements.siteCenterSelect) {
+    elements.siteCenterSelect.value = settings.centerId || user.centerId || centers?.[0]?.id || "";
+    applySiteSettingsFromCenter(elements.siteCenterSelect.value);
+  } else {
+    elements.siteName.value = settings.siteName || "Planta principal";
+    elements.siteLat.value = settings.siteLat || "5.286142";
+    elements.siteLng.value = settings.siteLng || "-72.402228";
+    elements.siteRadiusM.value = settings.siteRadiusM || "180";
+    elements.geofenceEnabled.checked = settings.geofenceEnabled;
+  }
   state.suitabilityInsights = buildSuitabilityInsights(state.appState.history || []);
 
   renderQueueTables();
@@ -564,7 +577,7 @@ function renderMastersTables(destinations, carriers, users, permissions) {
 
   if (permissions?.canManageUsers) {
     elements.usersTable.innerHTML = renderTable(
-      [["Usuario", (item) => escapeHtml(item.username)], ["Nombre", (item) => escapeHtml(item.fullName)], ["Rol", (item) => translateRole(item.role)], ["Estado", (item) => item.active ? "Activo" : "Inactivo"], ["Acción", (item) => `<div class="actions"><button class="ghost small-action" data-user-edit="${item.id}" type="button">Editar</button></div>`]],
+      [["Usuario", (item) => escapeHtml(item.username)], ["Nombre", (item) => escapeHtml(item.fullName)], ["Rol", (item) => translateRole(item.role)], ["Centro", (item) => escapeHtml(`${item.centerCode || ""} - ${item.centerName || ""}`.replace(/^ - /, ""))], ["Estado", (item) => item.active ? "Activo" : "Inactivo"], ["Acción", (item) => `<div class="actions"><button class="ghost small-action" data-user-edit="${item.id}" type="button">Editar</button></div>`]],
       users,
       "No hay usuarios."
     );
@@ -572,6 +585,16 @@ function renderMastersTables(destinations, carriers, users, permissions) {
     elements.usersTable.innerHTML = `<div class="empty">Solo el administrador general puede ver y crear usuarios.</div>`;
   }
   bindMasterActions();
+}
+
+function applySiteSettingsFromCenter(centerId) {
+  const center = (state.appState?.centers || []).find((item) => item.id === centerId);
+  const fallback = state.appState?.settings || {};
+  elements.siteName.value = center?.name || fallback.siteName || "Planta principal";
+  elements.siteLat.value = center?.siteLat || fallback.siteLat || "5.286142";
+  elements.siteLng.value = center?.siteLng || fallback.siteLng || "-72.402228";
+  elements.siteRadiusM.value = center?.siteRadiusM || fallback.siteRadiusM || "180";
+  elements.geofenceEnabled.checked = center ? Boolean(center.geofenceEnabled) : Boolean(fallback.geofenceEnabled);
 }
 
 function bindMasterActions() {
@@ -726,10 +749,9 @@ function openVehicleEditModal(vehicle) {
   elements.editDriverId.value = vehicle.driverId || "";
   elements.editDriverPhone.value = vehicle.driverPhone || "";
   elements.editEmptyWeightKg.value = vehicle.emptyWeightKg ?? "";
-  const selectedDestinations = new Set(vehicle.destinationIds || (vehicle.destinationId ? [vehicle.destinationId] : []));
-  Array.from(elements.editDestinationSelect.options).forEach((option) => {
-    option.selected = selectedDestinations.has(option.value);
-  });
+  elements.editCenterSelect.value = vehicle.centerId || "1010";
+  const selectedDestinations = vehicle.destinationIds || (vehicle.destinationId ? [vehicle.destinationId] : []);
+  elements.editDestinationSelect.value = selectedDestinations[0] || "";
   elements.editVehicleStatus.value = vehicle.status || "QUEUED";
   elements.editQualityStatus.value = vehicle.qualityStatus || "PENDING";
   elements.editRejectionReason.value = vehicle.rejectionReason || "";
@@ -843,6 +865,7 @@ async function submitUser(event) {
         username: form.get("newUsername"),
         fullName: form.get("newFullName"),
         role: form.get("newRole"),
+        centerId: form.get("newCenterId"),
         password: form.get("newPassword"),
         active: elements.newUserActive.checked,
       },
@@ -896,6 +919,7 @@ function startUserEdit(userId) {
   document.querySelector("#newUsername").value = user.username || "";
   document.querySelector("#newFullName").value = user.fullName || "";
   document.querySelector("#newRole").value = user.role || "LOGISTICA";
+  elements.newCenterSelect.value = user.centerId || "1010";
   elements.newPassword.value = "";
   elements.newUserActive.checked = Boolean(user.active);
   elements.userSubmitButton.textContent = "Guardar cambios";
@@ -906,6 +930,9 @@ function resetUserForm() {
   state.editingUserId = null;
   elements.userForm.reset();
   document.querySelector("#newRole").value = "LOGISTICA";
+  if (elements.newCenterSelect.options.length) {
+    elements.newCenterSelect.selectedIndex = 0;
+  }
   elements.newUserActive.checked = true;
   elements.userSubmitButton.textContent = "Crear usuario";
   elements.cancelUserEditButton.classList.add("hidden");
@@ -913,10 +940,12 @@ function resetUserForm() {
 
 async function submitSiteConfig(event) {
   event.preventDefault();
+  const selectedCenterId = elements.siteCenterSelect?.value || state.appState?.settings?.centerId || state.user?.centerId || "1010";
   try {
     await request("/settings/site", {
       method: "POST",
       body: {
+        centerId: selectedCenterId,
         siteName: elements.siteName.value,
         siteLat: elements.siteLat.value,
         siteLng: elements.siteLng.value,
@@ -925,6 +954,10 @@ async function submitSiteConfig(event) {
       },
     });
     await refreshAppState();
+    if (elements.siteCenterSelect) {
+      elements.siteCenterSelect.value = selectedCenterId;
+      applySiteSettingsFromCenter(selectedCenterId);
+    }
     showToast("Geocerca actualizada.");
   } catch (error) {
     showToast(error.message);
@@ -949,6 +982,7 @@ async function submitVehicleEdit(event) {
         driverId: elements.editDriverId.value,
         driverPhone: elements.editDriverPhone.value,
         emptyWeightKg: elements.editEmptyWeightKg.value,
+        centerId: elements.editCenterSelect.value,
         destinationId: destinationIds[0],
         destinationIds,
         status: elements.editVehicleStatus.value,

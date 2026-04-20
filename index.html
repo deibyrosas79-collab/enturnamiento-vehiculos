@@ -93,7 +93,7 @@
                 <label>P. vacío (kg)<input id="emptyWeightKg" name="emptyWeightKg" required placeholder="Ej: 8400" /></label>
                 <label class="wide">
                   Ciudades / destinos de interés
-                  <select id="destinationId" name="destinationId" class="multi-select" multiple required></select>
+                  <select id="destinationId" name="destinationId" required></select>
                 </label>
                 <div class="wide">
                   <button class="primary" type="submit">Registrar en turno</button>
@@ -257,6 +257,7 @@
                   <option value="ADMIN">Administrador</option>
                 </select>
               </label>
+              <label>Centro / CEDI<select id="newCenterId" name="newCenterId" required></select></label>
               <label>Clave<input id="newPassword" name="newPassword" type="password" placeholder="Obligatoria al crear, opcional al editar" /></label>
               <label class="inline-check">
                 <input id="newUserActive" name="newUserActive" type="checkbox" checked />
@@ -301,6 +302,7 @@
               </div>
             </div>
             <form id="siteForm" class="form-grid compact">
+              <label>Centro / CEDI<select id="siteCenterId" name="siteCenterId" required></select></label>
               <label>Nombre sede<input id="siteName" name="siteName" required /></label>
               <label>Radio permitido (m)<input id="siteRadiusM" name="siteRadiusM" required /></label>
               <label>Latitud<input id="siteLat" name="siteLat" required /></label>
@@ -380,9 +382,10 @@
           <label>Cédula<input id="editDriverId" name="driverId" required /></label>
           <label>Celular<input id="editDriverPhone" name="driverPhone" required /></label>
           <label>P. vacío (kg)<input id="editEmptyWeightKg" name="emptyWeightKg" required /></label>
+          <label>Centro / CEDI<select id="editCenterId" name="centerId" required></select></label>
           <label class="wide">
             Ciudades / destinos de interés
-            <select id="editDestinationIds" name="destinationIds" class="multi-select" multiple required></select>
+            <select id="editDestinationIds" name="destinationIds" required></select>
           </label>
           <label>Estado logístico
             <select id="editVehicleStatus" name="status" required>

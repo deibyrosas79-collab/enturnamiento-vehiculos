@@ -847,10 +847,12 @@ th {
     radial-gradient(ellipse 70% 50% at 5% -5%, rgba(27, 88, 232, 0.13), transparent),
     radial-gradient(ellipse 50% 40% at 95% 5%, rgba(15, 168, 114, 0.09), transparent),
     linear-gradient(180deg, #e8f0fe 0%, #f5f9ff 100%);
+  overflow-x: hidden;
 }
 
 .public-shell {
-  max-width: 1020px;
+  width: min(100% - 18px, 760px);
+  max-width: 760px;
   display: grid;
   gap: 18px;
 }
@@ -858,6 +860,7 @@ th {
 .public-hero {
   text-align: center;
   flex-direction: column;
+  align-items: center;
 }
 
 .capture-grid {
@@ -969,7 +972,7 @@ th {
 @media (max-width: 980px) {
   .page-shell,
   .public-shell {
-    width: min(100% - 20px, 1440px);
+    width: min(100% - 16px, 1440px);
     padding-top: 20px;
   }
 
@@ -1012,4 +1015,11 @@ th {
   .hero h1,
   .public-hero h1 { font-size: 2.1rem; }
   .nav-tab, .tab { padding: 9px 14px; font-size: .84rem; }
+  .public-shell { width: calc(100% - 12px); }
+  .public-body input,
+  .public-body select,
+  .public-body textarea,
+  .public-body button {
+    font-size: 16px;
+  }
 }
