@@ -39,6 +39,10 @@ const state = {
   rejectVehicle: null,
   qualityVehicle: null,
   suitabilityInsights: null,
+  editVehicle: null,
+  editingDestinationId: null,
+  editingCarrierId: null,
+  editingUserId: null,
 };
 
 const elements = {
@@ -55,6 +59,8 @@ const elements = {
   vehicleForm: document.querySelector("#vehicleForm"),
   carrierSelect: document.querySelector("#carrierId"),
   destinationSelect: document.querySelector("#destinationId"),
+  editCarrierSelect: document.querySelector("#editCarrierId"),
+  editDestinationSelect: document.querySelector("#editDestinationIds"),
   searchInput: document.querySelector("#searchInput"),
   historySearchInput: document.querySelector("#historySearchInput"),
   exportHistoryButton: document.querySelector("#exportHistoryButton"),
@@ -65,11 +71,19 @@ const elements = {
   destinationForm: document.querySelector("#destinationForm"),
   carrierForm: document.querySelector("#carrierForm"),
   userForm: document.querySelector("#userForm"),
+  destinationSubmitButton: document.querySelector("#destinationSubmitButton"),
+  cancelDestinationEditButton: document.querySelector("#cancelDestinationEditButton"),
+  carrierSubmitButton: document.querySelector("#carrierSubmitButton"),
+  cancelCarrierEditButton: document.querySelector("#cancelCarrierEditButton"),
+  userSubmitButton: document.querySelector("#userSubmitButton"),
+  cancelUserEditButton: document.querySelector("#cancelUserEditButton"),
   siteForm: document.querySelector("#siteForm"),
   destinationsTable: document.querySelector("#destinationsTable"),
   carriersTable: document.querySelector("#carriersTable"),
   usersTable: document.querySelector("#usersTable"),
   usersSection: document.querySelector("#usersSection"),
+  newPassword: document.querySelector("#newPassword"),
+  newUserActive: document.querySelector("#newUserActive"),
   catalogsSection: document.querySelector("#catalogsSection"),
   publicRegistrationUrl: document.querySelector("#publicRegistrationUrl"),
   publicQrImage: document.querySelector("#publicQrImage"),
@@ -94,6 +108,19 @@ const elements = {
   suitabilityHistoryDescription: document.querySelector("#suitabilityHistoryDescription"),
   suitabilityHistoryTable: document.querySelector("#suitabilityHistoryTable"),
   closeSuitabilityHistoryButton: document.querySelector("#closeSuitabilityHistoryButton"),
+  vehicleEditModal: document.querySelector("#vehicleEditModal"),
+  vehicleEditForm: document.querySelector("#vehicleEditForm"),
+  vehicleEditTitle: document.querySelector("#vehicleEditTitle"),
+  vehicleEditMeta: document.querySelector("#vehicleEditMeta"),
+  cancelVehicleEditButton: document.querySelector("#cancelVehicleEditButton"),
+  editPlate: document.querySelector("#editPlate"),
+  editDriverName: document.querySelector("#editDriverName"),
+  editDriverId: document.querySelector("#editDriverId"),
+  editDriverPhone: document.querySelector("#editDriverPhone"),
+  editEmptyWeightKg: document.querySelector("#editEmptyWeightKg"),
+  editVehicleStatus: document.querySelector("#editVehicleStatus"),
+  editQualityStatus: document.querySelector("#editQualityStatus"),
+  editRejectionReason: document.querySelector("#editRejectionReason"),
   rejectModal: document.querySelector("#rejectModal"),
   rejectForm: document.querySelector("#rejectForm"),
   rejectVehicleLabel: document.querySelector("#rejectVehicleLabel"),
@@ -144,6 +171,9 @@ function bindEvents() {
   elements.destinationForm.addEventListener("submit", submitDestination);
   elements.carrierForm.addEventListener("submit", submitCarrier);
   elements.userForm.addEventListener("submit", submitUser);
+  elements.cancelDestinationEditButton?.addEventListener("click", resetDestinationForm);
+  elements.cancelCarrierEditButton?.addEventListener("click", resetCarrierForm);
+  elements.cancelUserEditButton?.addEventListener("click", resetUserForm);
   elements.siteForm.addEventListener("submit", submitSiteConfig);
   elements.searchInput.addEventListener("input", () => {
     renderQueueTables();
@@ -156,6 +186,8 @@ function bindEvents() {
   elements.qualityForm.addEventListener("submit", submitQualityInspection);
   elements.cancelQualityButton.addEventListener("click", closeQualityModal);
   elements.closeSuitabilityHistoryButton?.addEventListener("click", closeSuitabilityHistoryModal);
+  elements.vehicleEditForm?.addEventListener("submit", submitVehicleEdit);
+  elements.cancelVehicleEditButton?.addEventListener("click", closeVehicleEditModal);
   elements.navTabs.forEach((button) => button.addEventListener("click", () => switchView(button.dataset.view)));
   elements.queueTabs.forEach((button) => button.addEventListener("click", () => switchQueueTab(button.dataset.queueTab)));
   elements.rejectModal.addEventListener("click", (event) => {
@@ -166,6 +198,9 @@ function bindEvents() {
   });
   elements.suitabilityHistoryModal?.addEventListener("click", (event) => {
     if (event.target === elements.suitabilityHistoryModal) closeSuitabilityHistoryModal();
+  });
+  elements.vehicleEditModal?.addEventListener("click", (event) => {
+    if (event.target === elements.vehicleEditModal) closeVehicleEditModal();
   });
 }
 
@@ -257,6 +292,8 @@ function renderApp() {
   switchView(getFirstAllowedView(user.role === "CALIDAD" ? "quality" : state.currentView, permissions));
   populateSelect(elements.carrierSelect, carriers, "Selecciona transportadora", (item) => `${item.code} - ${item.name}`);
   populateMultiSelect(elements.destinationSelect, destinations, (item) => `${item.city} - ${item.zone}`);
+  populateSelect(elements.editCarrierSelect, carriers, "Selecciona transportadora", (item) => `${item.code} - ${item.name}`);
+  populateMultiSelect(elements.editDestinationSelect, destinations, (item) => `${item.city} - ${item.zone}`);
   elements.publicRegistrationUrl.value = state.appState.publicRegistrationUrl;
   elements.publicQrImage.src = state.appState.publicQrUrl;
   elements.countQueued.textContent = analytics.queuedCount ?? queued.length;
@@ -404,6 +441,10 @@ function renderQueueTables() {
         ["Soportes", renderVehicleSupports],
       ];
 
+  if (state.appState?.permissions?.isAdmin) {
+    columns.push(["Acciones", renderRecordActions]);
+  }
+
   elements.queueTables.innerHTML = renderTable(
     columns,
     rows,
@@ -413,15 +454,17 @@ function renderQueueTables() {
 }
 
 function renderQueueActions(item) {
-  if (!state.appState?.permissions?.canOperateLogistics || item.status !== "QUEUED") {
-    return `<span class="muted-text">Solo lectura</span>`;
+  const actions = [];
+  if (state.appState?.permissions?.canOperateLogistics && item.status === "QUEUED") {
+    actions.push(`<button class="primary small-action" type="button" data-action="assign" data-id="${item.id}" ${item.qualityStatus !== "APPROVED" ? "disabled" : ""}>Asignar</button>`);
+    actions.push(`<button class="danger small-action" type="button" data-action="reject" data-id="${item.id}">Rechazar</button>`);
   }
-  return `
-    <div class="actions">
-      <button class="primary small-action" type="button" data-action="assign" data-id="${item.id}" ${item.qualityStatus !== "APPROVED" ? "disabled" : ""}>Asignar</button>
-      <button class="danger small-action" type="button" data-action="reject" data-id="${item.id}">Rechazar</button>
-    </div>
-  `;
+  if (state.appState?.permissions?.isAdmin) {
+    actions.push(`<button class="ghost small-action" type="button" data-action="edit-record" data-id="${item.id}">Editar</button>`);
+    actions.push(`<button class="danger small-action" type="button" data-action="delete-record" data-id="${item.id}">Eliminar</button>`);
+  }
+  if (!actions.length) return `<span class="muted-text">Solo lectura</span>`;
+  return `<div class="actions">${actions.join("")}</div>`;
 }
 
 function bindQueueActions() {
@@ -432,6 +475,36 @@ function bindQueueActions() {
     const vehicle = state.appState.queued.find((item) => item.id === button.dataset.id);
     button.addEventListener("click", () => openRejectModal(vehicle));
   });
+  bindRecordActions(elements.queueTables);
+}
+
+function bindRecordActions(container) {
+  if (!container) return;
+  container.querySelectorAll("[data-action='edit-record']").forEach((button) => {
+    button.addEventListener("click", () => openVehicleEditModal(findVehicleById(button.dataset.id)));
+  });
+  container.querySelectorAll("[data-action='delete-record']").forEach((button) => {
+    button.addEventListener("click", () => deleteVehicleRecord(button.dataset.id));
+  });
+}
+
+function renderRecordActions(item) {
+  if (!state.appState?.permissions?.isAdmin) return `<span class="muted-text">Solo lectura</span>`;
+  return `
+    <div class="actions">
+      <button class="ghost small-action" type="button" data-action="edit-record" data-id="${item.id}">Editar</button>
+      <button class="danger small-action" type="button" data-action="delete-record" data-id="${item.id}">Eliminar</button>
+    </div>
+  `;
+}
+
+function findVehicleById(vehicleId) {
+  const allVehicles = [
+    ...(state.appState?.queued || []),
+    ...(state.appState?.assigned || []),
+    ...(state.appState?.rejected || []),
+  ];
+  return allVehicles.find((item) => item.id === vehicleId) || null;
 }
 
 function renderNamedTable(title, subtitle, content) {
@@ -475,12 +548,12 @@ function renderCityQueues() {
 function renderMastersTables(destinations, carriers, users, permissions) {
   if (permissions?.canManageCatalogs) {
     elements.destinationsTable.innerHTML = renderTable(
-      [["Ciudad", (item) => escapeHtml(item.city)], ["Zona", (item) => escapeHtml(item.zone)], ["Acción", (item) => `<button class="danger small-action" data-destination-delete="${item.id}" type="button">Eliminar</button>`]],
+      [["Ciudad", (item) => escapeHtml(item.city)], ["Zona", (item) => escapeHtml(item.zone)], ["Acción", (item) => `<div class="actions"><button class="ghost small-action" data-destination-edit="${item.id}" type="button">Editar</button><button class="danger small-action" data-destination-delete="${item.id}" type="button">Eliminar</button></div>`]],
       destinations,
       "No hay destinos."
     );
     elements.carriersTable.innerHTML = renderTable(
-      [["Código", (item) => escapeHtml(item.code)], ["Transportadora", (item) => escapeHtml(item.name)], ["Tipo de cola", (item) => item.code === "4000801" ? "Fila paralela Diana Agrícola" : "Fila general"], ["Acción", (item) => `<button class="danger small-action" data-carrier-delete="${item.id}" type="button">Eliminar</button>`]],
+      [["Código", (item) => escapeHtml(item.code)], ["Transportadora", (item) => escapeHtml(item.name)], ["Tipo de cola", (item) => item.code === "4000801" ? "Fila paralela Diana Agrícola" : "Fila general"], ["Acción", (item) => `<div class="actions"><button class="ghost small-action" data-carrier-edit="${item.id}" type="button">Editar</button><button class="danger small-action" data-carrier-delete="${item.id}" type="button">Eliminar</button></div>`]],
       carriers,
       "No hay transportadoras."
     );
@@ -491,7 +564,7 @@ function renderMastersTables(destinations, carriers, users, permissions) {
 
   if (permissions?.canManageUsers) {
     elements.usersTable.innerHTML = renderTable(
-      [["Usuario", (item) => escapeHtml(item.username)], ["Nombre", (item) => escapeHtml(item.fullName)], ["Rol", (item) => translateRole(item.role)], ["Estado", (item) => item.active ? "Activo" : "Inactivo"]],
+      [["Usuario", (item) => escapeHtml(item.username)], ["Nombre", (item) => escapeHtml(item.fullName)], ["Rol", (item) => translateRole(item.role)], ["Estado", (item) => item.active ? "Activo" : "Inactivo"], ["Acción", (item) => `<div class="actions"><button class="ghost small-action" data-user-edit="${item.id}" type="button">Editar</button></div>`]],
       users,
       "No hay usuarios."
     );
@@ -502,11 +575,20 @@ function renderMastersTables(destinations, carriers, users, permissions) {
 }
 
 function bindMasterActions() {
+  document.querySelectorAll("[data-destination-edit]").forEach((button) => {
+    button.addEventListener("click", () => startDestinationEdit(button.dataset.destinationEdit));
+  });
   document.querySelectorAll("[data-destination-delete]").forEach((button) => {
     button.addEventListener("click", () => deleteEntity("destinations", button.dataset.destinationDelete));
   });
+  document.querySelectorAll("[data-carrier-edit]").forEach((button) => {
+    button.addEventListener("click", () => startCarrierEdit(button.dataset.carrierEdit));
+  });
   document.querySelectorAll("[data-carrier-delete]").forEach((button) => {
     button.addEventListener("click", () => deleteEntity("carriers", button.dataset.carrierDelete));
+  });
+  document.querySelectorAll("[data-user-edit]").forEach((button) => {
+    button.addEventListener("click", () => startUserEdit(button.dataset.userEdit));
   });
 }
 
@@ -539,12 +621,24 @@ function renderQualityStack(container, rows, allowInspect, emptyText) {
       </div>
       ${renderVehicleSupports(item)}
       <p class="muted-text">${escapeHtml(item.latestInspection?.findingsSummary || "Pendiente de checklist")}</p>
-      ${allowInspect && state.appState.permissions?.canOperateQuality ? `<div class="actions"><button class="primary" type="button" data-quality-review="${item.id}">Revisar vehículo</button></div>` : ""}
+      ${(allowInspect && state.appState.permissions?.canOperateQuality) || state.appState.permissions?.isAdmin ? `
+        <div class="actions">
+          ${allowInspect && state.appState.permissions?.canOperateQuality ? `<button class="primary" type="button" data-quality-review="${item.id}">Revisar vehículo</button>` : ""}
+          ${state.appState.permissions?.isAdmin ? `<button class="ghost" type="button" data-quality-edit="${item.id}">Editar registro</button><button class="danger" type="button" data-quality-delete="${item.id}">Eliminar</button>` : ""}
+        </div>
+      ` : ""}
     </article>
   `).join("");
   container.querySelectorAll("[data-quality-review]").forEach((button) => {
     const vehicle = rows.find((item) => item.id === button.dataset.qualityReview);
     button.addEventListener("click", () => openQualityModal(vehicle));
+  });
+  container.querySelectorAll("[data-quality-edit]").forEach((button) => {
+    const vehicle = rows.find((item) => item.id === button.dataset.qualityEdit);
+    button.addEventListener("click", () => openVehicleEditModal(vehicle));
+  });
+  container.querySelectorAll("[data-quality-delete]").forEach((button) => {
+    button.addEventListener("click", () => deleteVehicleRecord(button.dataset.qualityDelete));
   });
 }
 
@@ -552,6 +646,7 @@ function renderHistoryTable() {
   if (!state.appState) return;
   const rows = filterHistoryRows(state.appState.history || []);
   elements.historyTable.innerHTML = renderTable(getHistoryColumns(false), rows, "No hay historial registrado todavía.");
+  bindRecordActions(elements.historyTable);
 }
 
 function renderReport(container, rows, emptyText) {
@@ -617,6 +712,36 @@ function closeSuitabilityHistoryModal() {
   elements.suitabilityHistoryModal.classList.add("hidden");
 }
 
+function openVehicleEditModal(vehicle) {
+  if (!vehicle) {
+    showToast("No se encontró el registro que deseas editar.");
+    return;
+  }
+  state.editVehicle = vehicle;
+  elements.vehicleEditTitle.textContent = `Editar registro ${vehicle.plate}`;
+  elements.vehicleEditMeta.textContent = `Administrador: puedes corregir cualquier dato del registro y volver a guardarlo.`;
+  elements.editPlate.value = vehicle.plate || "";
+  elements.editCarrierSelect.value = vehicle.carrierId || "";
+  elements.editDriverName.value = vehicle.driverName || "";
+  elements.editDriverId.value = vehicle.driverId || "";
+  elements.editDriverPhone.value = vehicle.driverPhone || "";
+  elements.editEmptyWeightKg.value = vehicle.emptyWeightKg ?? "";
+  const selectedDestinations = new Set(vehicle.destinationIds || (vehicle.destinationId ? [vehicle.destinationId] : []));
+  Array.from(elements.editDestinationSelect.options).forEach((option) => {
+    option.selected = selectedDestinations.has(option.value);
+  });
+  elements.editVehicleStatus.value = vehicle.status || "QUEUED";
+  elements.editQualityStatus.value = vehicle.qualityStatus || "PENDING";
+  elements.editRejectionReason.value = vehicle.rejectionReason || "";
+  elements.vehicleEditModal.classList.remove("hidden");
+}
+
+function closeVehicleEditModal() {
+  state.editVehicle = null;
+  elements.vehicleEditForm?.reset();
+  elements.vehicleEditModal.classList.add("hidden");
+}
+
 function renderChecklistForm() {
   elements.qualityChecklistGrid.innerHTML = CHECKLIST_ITEMS.map((item) => `
     <section class="quality-item" data-check-item="${item.key}">
@@ -674,11 +799,14 @@ async function submitVehicle(event) {
 async function submitDestination(event) {
   event.preventDefault();
   const form = new FormData(elements.destinationForm);
+  const isEditing = Boolean(state.editingDestinationId);
   try {
-    await request("/destinations", { method: "POST", body: { city: form.get("destinationCity"), zone: form.get("destinationZone") } });
-    elements.destinationForm.reset();
+    const path = isEditing ? `/destinations/${encodeURIComponent(state.editingDestinationId)}` : "/destinations";
+    const method = isEditing ? "PUT" : "POST";
+    await request(path, { method, body: { city: form.get("destinationCity"), zone: form.get("destinationZone") } });
+    resetDestinationForm();
     await refreshAppState();
-    showToast("Destino guardado.");
+    showToast(isEditing ? "Destino actualizado." : "Destino guardado.");
   } catch (error) {
     showToast(error.message);
   }
@@ -687,11 +815,14 @@ async function submitDestination(event) {
 async function submitCarrier(event) {
   event.preventDefault();
   const form = new FormData(elements.carrierForm);
+  const isEditing = Boolean(state.editingCarrierId);
   try {
-    await request("/carriers", { method: "POST", body: { code: form.get("carrierCode"), name: form.get("carrierName") } });
-    elements.carrierForm.reset();
+    const path = isEditing ? `/carriers/${encodeURIComponent(state.editingCarrierId)}` : "/carriers";
+    const method = isEditing ? "PUT" : "POST";
+    await request(path, { method, body: { code: form.get("carrierCode"), name: form.get("carrierName") } });
+    resetCarrierForm();
     await refreshAppState();
-    showToast("Transportadora guardada.");
+    showToast(isEditing ? "Transportadora actualizada." : "Transportadora guardada.");
   } catch (error) {
     showToast(error.message);
   }
@@ -700,22 +831,84 @@ async function submitCarrier(event) {
 async function submitUser(event) {
   event.preventDefault();
   const form = new FormData(elements.userForm);
+  const isEditing = Boolean(state.editingUserId);
+  if (!isEditing && !String(form.get("newPassword") || "").trim()) {
+    showToast("La clave es obligatoria para crear el usuario.");
+    return;
+  }
   try {
-    await request("/users", {
-      method: "POST",
+    await request(isEditing ? `/users/${encodeURIComponent(state.editingUserId)}` : "/users", {
+      method: isEditing ? "PUT" : "POST",
       body: {
         username: form.get("newUsername"),
         fullName: form.get("newFullName"),
         role: form.get("newRole"),
         password: form.get("newPassword"),
+        active: elements.newUserActive.checked,
       },
     });
-    elements.userForm.reset();
+    resetUserForm();
     await refreshAppState();
-    showToast("Usuario creado.");
+    showToast(isEditing ? "Usuario actualizado." : "Usuario creado.");
   } catch (error) {
     showToast(error.message);
   }
+}
+
+function startDestinationEdit(destinationId) {
+  const destination = (state.appState?.destinations || []).find((item) => item.id === destinationId);
+  if (!destination) return;
+  state.editingDestinationId = destination.id;
+  document.querySelector("#destinationCity").value = destination.city || "";
+  document.querySelector("#destinationZone").value = destination.zone || "";
+  elements.destinationSubmitButton.textContent = "Guardar cambios";
+  elements.cancelDestinationEditButton.classList.remove("hidden");
+}
+
+function resetDestinationForm() {
+  state.editingDestinationId = null;
+  elements.destinationForm.reset();
+  elements.destinationSubmitButton.textContent = "Guardar destino";
+  elements.cancelDestinationEditButton.classList.add("hidden");
+}
+
+function startCarrierEdit(carrierId) {
+  const carrier = (state.appState?.carriers || []).find((item) => item.id === carrierId);
+  if (!carrier) return;
+  state.editingCarrierId = carrier.id;
+  document.querySelector("#carrierCode").value = carrier.code || "";
+  document.querySelector("#carrierName").value = carrier.name || "";
+  elements.carrierSubmitButton.textContent = "Guardar cambios";
+  elements.cancelCarrierEditButton.classList.remove("hidden");
+}
+
+function resetCarrierForm() {
+  state.editingCarrierId = null;
+  elements.carrierForm.reset();
+  elements.carrierSubmitButton.textContent = "Guardar transportadora";
+  elements.cancelCarrierEditButton.classList.add("hidden");
+}
+
+function startUserEdit(userId) {
+  const user = (state.appState?.users || []).find((item) => item.id === userId);
+  if (!user) return;
+  state.editingUserId = user.id;
+  document.querySelector("#newUsername").value = user.username || "";
+  document.querySelector("#newFullName").value = user.fullName || "";
+  document.querySelector("#newRole").value = user.role || "LOGISTICA";
+  elements.newPassword.value = "";
+  elements.newUserActive.checked = Boolean(user.active);
+  elements.userSubmitButton.textContent = "Guardar cambios";
+  elements.cancelUserEditButton.classList.remove("hidden");
+}
+
+function resetUserForm() {
+  state.editingUserId = null;
+  elements.userForm.reset();
+  document.querySelector("#newRole").value = "LOGISTICA";
+  elements.newUserActive.checked = true;
+  elements.userSubmitButton.textContent = "Crear usuario";
+  elements.cancelUserEditButton.classList.add("hidden");
 }
 
 async function submitSiteConfig(event) {
@@ -738,12 +931,57 @@ async function submitSiteConfig(event) {
   }
 }
 
+async function submitVehicleEdit(event) {
+  event.preventDefault();
+  if (!state.editVehicle) return;
+  const destinationIds = Array.from(elements.editDestinationSelect.selectedOptions).map((option) => option.value).filter(Boolean);
+  if (!destinationIds.length) {
+    showToast("Debes seleccionar al menos un destino para el registro.");
+    return;
+  }
+  try {
+    await request(`/vehicles/${encodeURIComponent(state.editVehicle.id)}`, {
+      method: "PUT",
+      body: {
+        plate: elements.editPlate.value,
+        carrierId: elements.editCarrierSelect.value,
+        driverName: elements.editDriverName.value,
+        driverId: elements.editDriverId.value,
+        driverPhone: elements.editDriverPhone.value,
+        emptyWeightKg: elements.editEmptyWeightKg.value,
+        destinationId: destinationIds[0],
+        destinationIds,
+        status: elements.editVehicleStatus.value,
+        qualityStatus: elements.editQualityStatus.value,
+        rejectionReason: elements.editRejectionReason.value,
+      },
+    });
+    closeVehicleEditModal();
+    await refreshAppState();
+    showToast("Registro corregido por administrador.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
 async function deleteEntity(entity, id) {
   if (!confirm("¿Seguro que deseas eliminar este registro?")) return;
   try {
     await request(`/${entity}/${encodeURIComponent(id)}`, { method: "DELETE" });
     await refreshAppState();
     showToast("Registro eliminado.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function deleteVehicleRecord(vehicleId) {
+  if (!confirm("¿Seguro que deseas eliminar definitivamente este registro del vehículo?")) return;
+  try {
+    await request(`/vehicles/${encodeURIComponent(vehicleId)}`, { method: "DELETE" });
+    closeVehicleEditModal();
+    await refreshAppState();
+    showToast("Registro eliminado por administrador.");
   } catch (error) {
     showToast(error.message);
   }
@@ -922,7 +1160,10 @@ function getHistoryColumns(forExport = false) {
   HISTORY_CHECKLIST_COLUMNS.forEach((column) => {
     columns.push([column.title, (item) => getChecklistHistoryResult(item, column.key)]);
   });
-  const htmlColumns = new Set(["Estado calidad", "Selfie", "Firma"]);
+  if (!forExport && state.appState?.permissions?.isAdmin) {
+    columns.push(["Acciones", renderRecordActions]);
+  }
+  const htmlColumns = new Set(["Estado calidad", "Selfie", "Firma", "Acciones"]);
   return forExport
     ? columns
     : columns.map(([title, renderer]) => [

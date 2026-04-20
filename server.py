@@ -1087,6 +1087,25 @@ def delete_destination(destination_id: str) -> None:
         db.execute("DELETE FROM destinations WHERE id = ?", (destination_id,))
 
 
+def update_destination(destination_id: str, payload: Dict[str, Any]) -> None:
+    city = clean_text(payload.get("city"))
+    zone = clean_text(payload.get("zone"))
+    if not city or not zone:
+        raise AppError("La ciudad y la zona son obligatorias.", 400)
+    with get_connection() as db:
+        destination = db.execute("SELECT * FROM destinations WHERE id = ?", (destination_id,)).fetchone()
+        if not destination:
+            raise AppError("El destino no existe.", 404)
+        exists = db.execute(
+            "SELECT id FROM destinations WHERE LOWER(city) = LOWER(?) AND LOWER(zone) = LOWER(?) AND id != ?",
+            (city, zone, destination_id),
+        ).fetchone()
+        if exists:
+            raise AppError("Ya existe otro destino con esa ciudad y zona.", 409)
+        db.execute("UPDATE destinations SET city = ?, zone = ? WHERE id = ?", (city, zone, destination_id))
+        db.execute("UPDATE vehicles SET city = ?, zone = ? WHERE destination_id = ?", (city, zone, destination_id))
+
+
 def add_carrier(payload: Dict[str, Any]) -> None:
     code = clean_text(payload.get("code"))
     name = clean_text(payload.get("name")).upper()
@@ -1119,6 +1138,30 @@ def delete_carrier(carrier_id: str) -> None:
         db.execute("DELETE FROM carriers WHERE id = ?", (carrier_id,))
 
 
+def update_carrier(carrier_id: str, payload: Dict[str, Any]) -> None:
+    code = clean_text(payload.get("code"))
+    name = clean_text(payload.get("name")).upper()
+    if not code or not name:
+        raise AppError("El código y el nombre de la transportadora son obligatorios.", 400)
+    with get_connection() as db:
+        carrier = db.execute("SELECT * FROM carriers WHERE id = ?", (carrier_id,)).fetchone()
+        if not carrier:
+            raise AppError("La transportadora no existe.", 404)
+        exists = db.execute(
+            "SELECT id FROM carriers WHERE (code = ? OR LOWER(name) = LOWER(?)) AND id != ?",
+            (code, name, carrier_id),
+        ).fetchone()
+        if exists:
+            raise AppError("Ya existe otra transportadora con ese código o nombre.", 409)
+        queue_group = queue_group_for_carrier_code(code)
+        db.execute("UPDATE carriers SET code = ?, name = ? WHERE id = ?", (code, name, carrier_id))
+        db.execute(
+            "UPDATE vehicles SET carrier_code = ?, carrier = ?, queue_group = ? WHERE carrier_id = ?",
+            (code, name, queue_group, carrier_id),
+        )
+        compact_queue(db)
+
+
 def add_user(payload: Dict[str, Any]) -> None:
     username = clean_text(payload.get("username")).lower()
     full_name = clean_text(payload.get("fullName"))
@@ -1140,6 +1183,38 @@ def add_user(payload: Dict[str, Any]) -> None:
             VALUES (?, ?, ?, ?, ?, ?)
             """,
             (create_id(), username, full_name, role, hash_password(password), now_iso()),
+        )
+
+
+def update_user(user_id: str, payload: Dict[str, Any]) -> None:
+    username = clean_text(payload.get("username")).lower()
+    full_name = clean_text(payload.get("fullName"))
+    role = clean_text(payload.get("role")).upper()
+    password = str(payload.get("password") or "").strip()
+    active = bool(payload.get("active", True))
+    if not all([username, full_name, role]):
+        raise AppError("Usuario, nombre y rol son obligatorios.", 400)
+    if role not in VALID_ROLES:
+        raise AppError("El rol indicado no es válido.", 400)
+    if password and len(password) < 8:
+        raise AppError("La clave debe tener al menos 8 caracteres.", 400)
+    with get_connection() as db:
+        user = db.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not user:
+            raise AppError("El usuario no existe.", 404)
+        exists = db.execute("SELECT id FROM users WHERE username = ? AND id != ?", (username, user_id)).fetchone()
+        if exists:
+            raise AppError("Ya existe otro usuario con ese nombre.", 409)
+        password_hash = user["password_hash"]
+        if password:
+            password_hash = hash_password(password)
+        db.execute(
+            """
+            UPDATE users
+            SET username = ?, full_name = ?, role = ?, password_hash = ?, active = ?
+            WHERE id = ?
+            """,
+            (username, full_name, role, password_hash, 1 if active else 0, user_id),
         )
 
 
@@ -1171,6 +1246,154 @@ def reject_vehicle(vehicle_id: str, reason: str) -> None:
             """,
             (now_iso(), reason_text, vehicle_id),
         )
+        compact_queue(db)
+
+
+def update_vehicle(vehicle_id: str, payload: Dict[str, Any]) -> None:
+    plate = normalize_plate(payload.get("plate"))
+    carrier_id = clean_text(payload.get("carrierId"))
+    driver_name = clean_text(payload.get("driverName"))
+    driver_id = clean_text(payload.get("driverId"))
+    driver_phone = clean_text(payload.get("driverPhone"))
+    destination_id = clean_text(payload.get("destinationId"))
+    destination_ids_payload = payload.get("destinationIds")
+    empty_weight = parse_float(payload.get("emptyWeightKg"))
+    new_status = clean_text(payload.get("status")).upper()
+    quality_status = clean_text(payload.get("qualityStatus")).upper()
+    rejection_reason = clean_text(payload.get("rejectionReason"))
+
+    destination_ids = [clean_text(destination_id)] if destination_id else []
+    if isinstance(destination_ids_payload, list):
+        destination_ids = [clean_text(item) for item in destination_ids_payload if clean_text(item)]
+    if destination_id and destination_id not in destination_ids:
+        destination_ids.insert(0, destination_id)
+    destination_ids = list(dict.fromkeys(destination_ids))
+    destination_id = destination_ids[0] if destination_ids else destination_id
+
+    if not all([plate, carrier_id, driver_name, driver_id, driver_phone, destination_id]):
+        raise AppError("Todos los datos base del vehículo son obligatorios.", 400)
+    if empty_weight is None:
+        raise AppError("El peso vacío del vehículo es obligatorio.", 400)
+    if new_status not in {QUEUE_STATUS_ACTIVE, QUEUE_STATUS_ASSIGNED, QUEUE_STATUS_REJECTED}:
+        raise AppError("El estado logístico no es válido.", 400)
+    if quality_status not in {QUALITY_PENDING, QUALITY_IN_PROGRESS, QUALITY_APPROVED, QUALITY_REWORK, QUALITY_REJECTED}:
+        raise AppError("El estado de calidad no es válido.", 400)
+
+    with get_connection() as db:
+        vehicle = db.execute("SELECT * FROM vehicles WHERE id = ?", (vehicle_id,)).fetchone()
+        if not vehicle:
+            raise AppError("El vehículo no existe.", 404)
+
+        destination = db.execute("SELECT * FROM destinations WHERE id = ?", (destination_id,)).fetchone()
+        if not destination:
+            raise AppError("El destino seleccionado no existe.", 404)
+        placeholders = ",".join("?" for _ in destination_ids)
+        destination_rows = db.execute(
+            f"SELECT * FROM destinations WHERE id IN ({placeholders})",
+            destination_ids,
+        ).fetchall()
+        if len(destination_rows) != len(destination_ids):
+            raise AppError("Uno o más destinos seleccionados no existen.", 404)
+
+        carrier = db.execute("SELECT * FROM carriers WHERE id = ?", (carrier_id,)).fetchone()
+        if not carrier:
+            raise AppError("La transportadora seleccionada no existe.", 404)
+
+        duplicate = db.execute(
+            "SELECT id FROM vehicles WHERE plate = ? AND status = 'QUEUED' AND id != ? LIMIT 1",
+            (plate, vehicle_id),
+        ).fetchone()
+        if duplicate and new_status == QUEUE_STATUS_ACTIVE:
+            raise AppError(f"La placa {plate} ya está enturnada en otro registro.", 409)
+
+        queue_group = queue_group_for_carrier_code(carrier["code"])
+        current_queue_group = vehicle["queue_group"] or queue_group_for_carrier_code(vehicle["carrier_code"])
+        queue_position = None
+        assigned_at = vehicle["assigned_at"]
+        rejected_at = vehicle["rejected_at"]
+        last_quality_at = vehicle["last_quality_at"]
+
+        if new_status == QUEUE_STATUS_ACTIVE:
+            if vehicle["status"] == QUEUE_STATUS_ACTIVE and current_queue_group == queue_group and vehicle["queue_position"] is not None:
+                queue_position = vehicle["queue_position"]
+            else:
+                queue_position = db.execute(
+                    """
+                    SELECT COALESCE(MAX(queue_position), 0) + 1
+                    FROM vehicles
+                    WHERE id != ? AND status = 'QUEUED' AND COALESCE(queue_group, ?) = ?
+                    """,
+                    (vehicle_id, QUEUE_GROUP_GENERAL, queue_group),
+                ).fetchone()[0]
+            assigned_at = None
+            if quality_status != QUALITY_REJECTED:
+                rejected_at = None
+                if not rejection_reason:
+                    rejection_reason = ""
+        elif new_status == QUEUE_STATUS_ASSIGNED:
+            queue_position = None
+            assigned_at = vehicle["assigned_at"] or now_iso()
+            rejected_at = None
+            if quality_status != QUALITY_REJECTED and not rejection_reason:
+                rejection_reason = ""
+        elif new_status == QUEUE_STATUS_REJECTED:
+            queue_position = None
+            rejected_at = vehicle["rejected_at"] or now_iso()
+            rejection_reason = rejection_reason or vehicle["rejection_reason"] or "Corregido por administrador"
+
+        if quality_status == QUALITY_REJECTED and not rejection_reason:
+            rejection_reason = vehicle["rejection_reason"] or "Rechazo registrado"
+        if quality_status != QUALITY_REJECTED and new_status != QUEUE_STATUS_REJECTED and not clean_text(payload.get("rejectionReason")):
+            rejection_reason = ""
+
+        if quality_status in {QUALITY_PENDING, QUALITY_IN_PROGRESS}:
+            last_quality_at = None
+        elif not last_quality_at:
+            last_quality_at = now_iso()
+
+        db.execute(
+            """
+            UPDATE vehicles
+            SET plate = ?, carrier_id = ?, carrier_code = ?, carrier = ?, driver_name = ?, driver_id = ?, driver_phone = ?,
+                empty_weight_kg = ?, destination_ids_json = ?, destination_id = ?, city = ?, zone = ?, queue_group = ?,
+                status = ?, quality_status = ?, queue_position = ?, assigned_at = ?, rejected_at = ?, rejection_reason = ?,
+                last_quality_at = ?
+            WHERE id = ?
+            """,
+            (
+                plate,
+                carrier["id"],
+                carrier["code"],
+                carrier["name"],
+                driver_name,
+                driver_id,
+                driver_phone,
+                empty_weight,
+                json.dumps(destination_ids, ensure_ascii=False),
+                destination["id"],
+                destination["city"],
+                destination["zone"],
+                queue_group,
+                new_status,
+                quality_status,
+                queue_position,
+                assigned_at,
+                rejected_at,
+                rejection_reason,
+                last_quality_at,
+                vehicle_id,
+            ),
+        )
+        compact_queue(db)
+
+
+def delete_vehicle_record(vehicle_id: str) -> None:
+    with get_connection() as db:
+        vehicle = db.execute("SELECT id FROM vehicles WHERE id = ?", (vehicle_id,)).fetchone()
+        if not vehicle:
+            raise AppError("El vehículo no existe.", 404)
+        db.execute("DELETE FROM quality_inspections WHERE vehicle_id = ?", (vehicle_id,))
+        db.execute("DELETE FROM vehicles WHERE id = ?", (vehicle_id,))
         compact_queue(db)
 
 
@@ -1527,6 +1750,42 @@ class Handler(BaseHTTPRequestHandler):
         except psycopg2.Error as error:
             self.send_error_json(f"Error de base de datos: {error}", 500)
 
+    def do_PUT(self) -> None:
+        parsed = urlparse(self.path)
+        try:
+            user = self.require_user()
+            if not user:
+                return
+            self.require_role(user, ROLE_ADMIN)
+            payload = self.read_json()
+
+            vehicle_id = parse_entity_id(parsed.path, "vehicles")
+            if vehicle_id:
+                update_vehicle(vehicle_id, payload)
+                self.send_json(get_user_state(user, self.request_origin()))
+                return
+            destination_id = parse_entity_id(parsed.path, "destinations")
+            if destination_id:
+                update_destination(destination_id, payload)
+                self.send_json(get_user_state(user, self.request_origin()))
+                return
+            carrier_id = parse_entity_id(parsed.path, "carriers")
+            if carrier_id:
+                update_carrier(carrier_id, payload)
+                self.send_json(get_user_state(user, self.request_origin()))
+                return
+            user_id = parse_entity_id(parsed.path, "users")
+            if user_id:
+                update_user(user_id, payload)
+                self.send_json(get_user_state(self.get_fresh_user(user["id"]), self.request_origin()))
+                return
+
+            self.send_error_json("Ruta no encontrada.", 404)
+        except AppError as error:
+            self.send_error_json(error.message, error.status)
+        except psycopg2.Error as error:
+            self.send_error_json(f"Error de base de datos: {error}", 500)
+
     def do_DELETE(self) -> None:
         parsed = urlparse(self.path)
         try:
@@ -1543,6 +1802,11 @@ class Handler(BaseHTTPRequestHandler):
             carrier_id = parse_entity_delete(parsed.path, "carriers")
             if carrier_id:
                 delete_carrier(carrier_id)
+                self.send_json(get_user_state(user, self.request_origin()))
+                return
+            vehicle_id = parse_entity_delete(parsed.path, "vehicles")
+            if vehicle_id:
+                delete_vehicle_record(vehicle_id)
                 self.send_json(get_user_state(user, self.request_origin()))
                 return
             self.send_error_json("Ruta no encontrada.", 404)
@@ -1686,7 +1950,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def add_common_headers(self, content_type: Optional[str] = None) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.send_header("Cache-Control", "no-store")
         if content_type:
@@ -1708,6 +1972,10 @@ def parse_entity_delete(path: str, entity_name: str) -> Optional[str]:
     if len(parts) == 3 and parts[0] == "api" and parts[1] == entity_name:
         return unquote(parts[2])
     return None
+
+
+def parse_entity_id(path: str, entity_name: str) -> Optional[str]:
+    return parse_entity_delete(path, entity_name)
 
 
 def main() -> None:

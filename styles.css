@@ -474,6 +474,10 @@ label {
   gap: 12px;
 }
 
+.multi-select {
+  min-height: 140px;
+}
+
 /* ─── TABLE ───────────────────────────────────────────── */
 .table-wrap {
   overflow: auto;
@@ -763,6 +767,11 @@ th {
   justify-content: end;
   gap: 10px;
   margin-top: 20px;
+}
+
+.inline-actions {
+  justify-content: start;
+  margin-top: 0;
 }
 
 /* ─── QUALITY FORM ────────────────────────────────────── */

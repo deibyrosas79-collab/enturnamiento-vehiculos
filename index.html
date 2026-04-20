@@ -93,7 +93,7 @@
                 <label>P. vacío (kg)<input id="emptyWeightKg" name="emptyWeightKg" required placeholder="Ej: 8400" /></label>
                 <label class="wide">
                   Ciudades / destinos de interés
-                  <select id="destinationId" name="destinationId" required></select>
+                  <select id="destinationId" name="destinationId" class="multi-select" multiple required></select>
                 </label>
                 <div class="wide">
                   <button class="primary" type="submit">Registrar en turno</button>
@@ -212,7 +212,10 @@
               <form id="destinationForm" class="form-grid compact">
                 <label>Ciudad<input id="destinationCity" name="destinationCity" required /></label>
                 <label>Zona<input id="destinationZone" name="destinationZone" required /></label>
-                <div class="wide"><button class="primary" type="submit">Guardar destino</button></div>
+                <div class="wide modal-actions inline-actions">
+                  <button id="destinationSubmitButton" class="primary" type="submit">Guardar destino</button>
+                  <button id="cancelDestinationEditButton" class="ghost hidden" type="button">Cancelar edición</button>
+                </div>
               </form>
               <div id="destinationsTable"></div>
             </section>
@@ -227,7 +230,10 @@
               <form id="carrierForm" class="form-grid compact">
                 <label>Código<input id="carrierCode" name="carrierCode" required /></label>
                 <label>Transportadora<input id="carrierName" name="carrierName" required /></label>
-                <div class="wide"><button class="primary" type="submit">Guardar transportadora</button></div>
+                <div class="wide modal-actions inline-actions">
+                  <button id="carrierSubmitButton" class="primary" type="submit">Guardar transportadora</button>
+                  <button id="cancelCarrierEditButton" class="ghost hidden" type="button">Cancelar edición</button>
+                </div>
               </form>
               <div id="carriersTable"></div>
             </section>
@@ -251,8 +257,15 @@
                   <option value="ADMIN">Administrador</option>
                 </select>
               </label>
-              <label>Clave<input id="newPassword" name="newPassword" type="password" required /></label>
-              <div class="wide"><button class="primary" type="submit">Crear usuario</button></div>
+              <label>Clave<input id="newPassword" name="newPassword" type="password" placeholder="Obligatoria al crear, opcional al editar" /></label>
+              <label class="inline-check">
+                <input id="newUserActive" name="newUserActive" type="checkbox" checked />
+                Usuario activo
+              </label>
+              <div class="wide modal-actions inline-actions">
+                <button id="userSubmitButton" class="primary" type="submit">Crear usuario</button>
+                <button id="cancelUserEditButton" class="ghost hidden" type="button">Cancelar edición</button>
+              </div>
             </form>
             <div id="usersTable"></div>
           </section>
@@ -354,6 +367,46 @@
           <button id="closeSuitabilityHistoryButton" class="ghost" type="button">Cerrar</button>
         </div>
       </div>
+    </div>
+
+    <div id="vehicleEditModal" class="modal hidden">
+      <form id="vehicleEditForm" class="modal-card wide-modal">
+        <h3 id="vehicleEditTitle">Editar registro</h3>
+        <p id="vehicleEditMeta" class="muted-text"></p>
+        <div class="form-grid">
+          <label>Placa<input id="editPlate" name="plate" required /></label>
+          <label>Transportadora<select id="editCarrierId" name="carrierId" required></select></label>
+          <label>Conductor<input id="editDriverName" name="driverName" required /></label>
+          <label>Cédula<input id="editDriverId" name="driverId" required /></label>
+          <label>Celular<input id="editDriverPhone" name="driverPhone" required /></label>
+          <label>P. vacío (kg)<input id="editEmptyWeightKg" name="emptyWeightKg" required /></label>
+          <label class="wide">
+            Ciudades / destinos de interés
+            <select id="editDestinationIds" name="destinationIds" class="multi-select" multiple required></select>
+          </label>
+          <label>Estado logístico
+            <select id="editVehicleStatus" name="status" required>
+              <option value="QUEUED">En turno</option>
+              <option value="ASSIGNED">Viaje asignado</option>
+              <option value="REJECTED">Rechazado</option>
+            </select>
+          </label>
+          <label>Estado calidad
+            <select id="editQualityStatus" name="qualityStatus" required>
+              <option value="PENDING">Pendiente</option>
+              <option value="IN_REVIEW">En revisión</option>
+              <option value="APPROVED">Apto</option>
+              <option value="REWORK">Requiere arreglos</option>
+              <option value="REJECTED">Rechazado</option>
+            </select>
+          </label>
+          <label class="wide">Motivo / observación administrativa<textarea id="editRejectionReason" name="rejectionReason" rows="4"></textarea></label>
+        </div>
+        <div class="modal-actions">
+          <button id="cancelVehicleEditButton" class="ghost" type="button">Cancelar</button>
+          <button class="primary" type="submit">Guardar cambios</button>
+        </div>
+      </form>
     </div>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
