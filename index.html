@@ -415,5 +415,30 @@
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
     <script src="app.js" defer></script>
+    <script>
+      (function () {
+        function urlB64ToUint8Array(b64) {
+          const pad = '='.repeat((4 - b64.length % 4) % 4);
+          const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+          return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+        }
+        async function initPush() {
+          if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+          try {
+            const reg = await navigator.serviceWorker.register('/sw.js');
+            const existing = await reg.pushManager.getSubscription();
+            if (existing) return;
+            const r = await fetch('/api/push/vapid-key');
+            const { publicKey } = await r.json();
+            if (!publicKey) return;
+            const perm = await Notification.requestPermission();
+            if (perm !== 'granted') return;
+            const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8Array(publicKey) });
+            await fetch('/api/push/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sub) });
+          } catch (e) { console.warn('Push init:', e); }
+        }
+        window.addEventListener('load', initPush);
+      })();
+    </script>
   </body>
 </html>

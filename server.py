@@ -12,6 +12,8 @@ import secrets
 import uuid
 
 import sqlite3
+import threading
+import urllib.request
 
 import psycopg2
 import psycopg2.extras
@@ -25,6 +27,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
+FCM_SERVER_KEY = os.environ.get("FCM_SERVER_KEY", "")
+VAPID_SUBJECT = os.environ.get("VAPID_SUBJECT", "mailto:admin@enturnamiento.com")
 UPLOADS_DIR = Path(os.environ.get("UPLOADS_DIR", str(BASE_DIR / "data" / "uploads")))
 HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "8000"))
@@ -233,6 +237,95 @@ class _Conn:
         self._raw.close()
 
 
+def get_vapid_keys() -> Tuple[str, str]:
+    try:
+        conn = get_connection()
+        with conn as db:
+            priv = db.execute("SELECT value FROM settings WHERE key = 'vapid_private_key'").fetchone()
+            pub = db.execute("SELECT value FROM settings WHERE key = 'vapid_public_key'").fetchone()
+        if priv and pub and priv["value"] and pub["value"]:
+            return priv["value"], pub["value"]
+        from py_vapid import Vapid
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+        v = Vapid()
+        v.generate_keys()
+        private_pem = v.private_pem().decode()
+        pub_bytes = v.public_key.public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
+        import base64
+        pub_b64 = base64.urlsafe_b64encode(pub_bytes).rstrip(b"=").decode()
+        with get_connection() as db:
+            for k, val in [("vapid_private_key", private_pem), ("vapid_public_key", pub_b64)]:
+                db.execute(
+                    "INSERT INTO settings (key, value) VALUES (?, ?) "
+                    "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                    (k, val),
+                )
+        return private_pem, pub_b64
+    except Exception as exc:
+        print(f"VAPID key error: {exc}")
+        return "", ""
+
+
+def send_notification(title: str, body: str, tag: str = "update") -> None:
+    threading.Thread(target=_dispatch_notifications, args=(title, body, tag), daemon=True).start()
+
+
+def _dispatch_notifications(title: str, body: str, tag: str) -> None:
+    payload = json.dumps({"title": title, "body": body, "tag": tag}).encode()
+    # Web Push
+    try:
+        private_key, _ = get_vapid_keys()
+        if private_key:
+            from pywebpush import webpush, WebPushException
+            with get_connection() as db:
+                subs = db.execute("SELECT * FROM push_subscriptions").fetchall()
+            expired = []
+            for sub in subs:
+                try:
+                    webpush(
+                        subscription_info={
+                            "endpoint": sub["endpoint"],
+                            "keys": {"auth": sub["auth"], "p256dh": sub["p256dh"]},
+                        },
+                        data=payload,
+                        vapid_private_key=private_key,
+                        vapid_claims={"sub": VAPID_SUBJECT},
+                    )
+                except WebPushException as exc:
+                    if exc.response and exc.response.status_code in (404, 410):
+                        expired.append(sub["id"])
+                except Exception:
+                    pass
+            if expired:
+                with get_connection() as db:
+                    for sid in expired:
+                        db.execute("DELETE FROM push_subscriptions WHERE id = ?", (sid,))
+    except Exception as exc:
+        print(f"Web push error: {exc}")
+    # FCM
+    if FCM_SERVER_KEY:
+        try:
+            with get_connection() as db:
+                tokens = [r["token"] for r in db.execute("SELECT token FROM fcm_tokens").fetchall()]
+            if tokens:
+                fcm_body = json.dumps({
+                    "registration_ids": tokens,
+                    "notification": {"title": title, "body": body, "sound": "default"},
+                    "data": {"title": title, "body": body},
+                }).encode()
+                req = urllib.request.Request(
+                    "https://fcm.googleapis.com/fcm/send",
+                    data=fcm_body,
+                    headers={
+                        "Authorization": f"key={FCM_SERVER_KEY}",
+                        "Content-Type": "application/json",
+                    },
+                )
+                urllib.request.urlopen(req, timeout=10)
+        except Exception as exc:
+            print(f"FCM error: {exc}")
+
+
 def get_connection() -> _Conn:
     if not DATABASE_URL:
         raise RuntimeError(
@@ -356,6 +449,20 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_quality_vehicle_review
             ON quality_inspections (vehicle_id, reviewed_at DESC);
+
+            CREATE TABLE IF NOT EXISTS push_subscriptions (
+                id TEXT PRIMARY KEY,
+                endpoint TEXT NOT NULL UNIQUE,
+                p256dh TEXT NOT NULL,
+                auth TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS fcm_tokens (
+                id TEXT PRIMARY KEY,
+                token TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL
+            );
             """
         )
         ensure_vehicle_columns(db)
@@ -1186,6 +1293,12 @@ def create_vehicle(
                 tracking_token,
             ),
         )
+    cities = ", ".join(r["city"] for r in destination_rows) if destination_rows else destination["city"]
+    send_notification(
+        "🚛 Vehículo enturnaado",
+        f"Placa {plate} · {driver_name} · {cities}",
+        tag="enturnar",
+    )
     return {"trackingToken": tracking_token}
 
 
@@ -1392,6 +1505,11 @@ def assign_vehicle(vehicle_id: str) -> None:
             (now_iso(), vehicle_id),
         )
         compact_queue(db)
+    send_notification(
+        "✅ Viaje asignado",
+        f"Placa {vehicle['plate']} · {vehicle['driver_name']} fue asignado a viaje",
+        tag="asignar",
+    )
 
 
 def reject_vehicle(vehicle_id: str, reason: str) -> None:
@@ -1409,6 +1527,11 @@ def reject_vehicle(vehicle_id: str, reason: str) -> None:
             (now_iso(), reason_text, vehicle_id),
         )
         compact_queue(db)
+    send_notification(
+        "❌ Vehículo rechazado",
+        f"Placa {vehicle['plate']} · {vehicle['driver_name']} — {reason_text}",
+        tag="rechazar",
+    )
 
 
 def update_vehicle(vehicle_id: str, payload: Dict[str, Any]) -> None:
@@ -1838,6 +1961,17 @@ def save_quality_inspection(vehicle_id: str, user: sqlite3.Row, payload: Dict[st
         )
         compact_queue(db)
 
+    quality_labels = {
+        QUALITY_APPROVED: ("✅ Vehículo APTO", "apto"),
+        QUALITY_REWORK: ("🔧 Vehículo en ARREGLOS", "arreglos"),
+        QUALITY_REJECTED: ("❌ Vehículo RECHAZADO por calidad", "rechazo-calidad"),
+    }
+    label, ntag = quality_labels.get(decision, ("📋 Calidad actualizada", "calidad"))
+    with get_connection() as db:
+        v = db.execute("SELECT plate, driver_name FROM vehicles WHERE id = ?", (vehicle_id,)).fetchone()
+    if v:
+        send_notification(label, f"Placa {v['plate']} · {v['driver_name']}", tag=ntag)
+
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "EnturnamientoVehiculos/2.0"
@@ -1868,6 +2002,10 @@ class Handler(BaseHTTPRequestHandler):
                 token = parsed.path.rsplit("/", 1)[-1]
                 self.send_json(build_public_tracking(unquote(token)))
                 return
+            if parsed.path == "/api/push/vapid-key":
+                _, pub = get_vapid_keys()
+                self.send_json({"publicKey": pub})
+                return
             if parsed.path in {"", "/"}:
                 self.serve_static("/index.html")
                 return
@@ -1891,6 +2029,31 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/auth/logout":
                 self.logout()
+                return
+            if parsed.path == "/api/push/subscribe":
+                endpoint = clean_text(payload.get("endpoint"))
+                keys = payload.get("keys") or {}
+                p256dh = clean_text(keys.get("p256dh"))
+                auth = clean_text(keys.get("auth"))
+                if endpoint and p256dh and auth:
+                    with get_connection() as db:
+                        db.execute(
+                            "INSERT INTO push_subscriptions (id, endpoint, p256dh, auth, created_at) "
+                            "VALUES (?, ?, ?, ?, ?) ON CONFLICT (endpoint) DO UPDATE SET p256dh=EXCLUDED.p256dh, auth=EXCLUDED.auth",
+                            (create_id(), endpoint, p256dh, auth, now_iso()),
+                        )
+                self.send_json({"ok": True})
+                return
+            if parsed.path == "/api/fcm/register":
+                token = clean_text(payload.get("token"))
+                if token:
+                    with get_connection() as db:
+                        db.execute(
+                            "INSERT INTO fcm_tokens (id, token, created_at) VALUES (?, ?, ?) "
+                            "ON CONFLICT (token) DO NOTHING",
+                            (create_id(), token, now_iso()),
+                        )
+                self.send_json({"ok": True})
                 return
             if parsed.path == "/api/public/register":
                 self.send_json(public_register(payload, first_query_value(query, "center")), 201)
