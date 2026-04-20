@@ -1102,3 +1102,34 @@ th {
   .public-shell > .panel { padding: 12px 10px; }
   .gps-banner { padding: 12px 10px; }
 }
+
+/* ── Public/Driver page: tablas responsivas en móvil ── */
+.public-body table {
+  min-width: 0;
+  width: 100%;
+}
+
+.public-body .table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.public-body td,
+.public-body th {
+  white-space: normal;
+  word-break: break-word;
+  padding: 10px 12px;
+  font-size: .85rem;
+}
+
+/* Listas de cola en driver.html: tarjetas en vez de tabla */
+.public-body .stack-list {
+  display: grid;
+  gap: 8px;
+}
+
+/* Evita que cualquier hijo desborde el ancho del shell */
+.public-shell * {
+  max-width: 100%;
+  box-sizing: border-box;
+}
