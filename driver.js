@@ -345,13 +345,8 @@ function renderTracking(data) {
         <p><strong>Conductor:</strong> ${escapeHtml(vehicle.driverName)}</p>
         <p><strong>Estado logistica:</strong> ${escapeHtml(translateLogisticsStatus(vehicle.status))}</p>
         <p><strong>Estado calidad:</strong> ${escapeHtml(translateQualityStatus(vehicle.qualityStatus))}</p>
-        <p><strong>Turno general:</strong> ${vehicle.turnPosition || "-"}</p>
         <p><strong>Destinos:</strong> ${escapeHtml(renderDestinationsText(vehicle))}</p>
-        ${cityTurns.length ? `
-          <div class="selected-city-turns compact">
-            ${cityTurns.map(([city, turn]) => `<span class="city-turn-chip">${escapeHtml(city)}: turno ${turn}</span>`).join("")}
-          </div>
-        ` : ""}
+        ${renderTrackingCityCards(vehicle, cityTurns)}
         ${observations ? `<div class="tracking-note"><strong>Observaciones:</strong> ${escapeHtml(observations)}</div>` : ""}
       </div>
       <div class="driver-media-grid">
@@ -362,6 +357,36 @@ function renderTracking(data) {
     <p class="muted-text">Actualiza automaticamente cada 20 segundos. Frente de la fila: ${escapeHtml(data.frontOfQueue?.plate || "Sin fila")}</p>
   `;
   togglePublicQueuePanels(false);
+}
+
+function renderTrackingCityCards(vehicle, cityTurns) {
+  const rows = cityTurns.length
+    ? cityTurns
+    : [[vehicle.city || "Destino principal", vehicle.turnPosition || "-"]];
+  const cards = rows.map(([city, turn]) => {
+    const matchingDestinations = (vehicle.destinationOptions || [])
+      .filter((option) => option.city === city)
+      .map((option) => option.zone)
+      .filter(Boolean);
+    const destinationLabel = matchingDestinations.length
+      ? `${city} - ${matchingDestinations.join(", ")}`
+      : city;
+    return `
+      <article class="tracking-city-card">
+        <span class="tracking-city-name">${escapeHtml(city)}</span>
+        <strong>Turno ${escapeHtml(String(turn || "-"))}</strong>
+        <small>${escapeHtml(destinationLabel)}</small>
+      </article>
+    `;
+  }).join("");
+  return `
+    <section class="tracking-city-section">
+      <h4>${rows.length > 1 ? "Tus turnos por ciudad" : "Tu turno por ciudad"}</h4>
+      <div class="tracking-city-grid ${rows.length === 1 ? "single" : ""}">
+        ${cards}
+      </div>
+    </section>
+  `;
 }
 
 function renderTrackingMedia(url, label) {

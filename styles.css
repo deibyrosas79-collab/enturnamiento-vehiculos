@@ -1287,6 +1287,56 @@ body {
   gap: 16px;
 }
 
+.tracking-city-section {
+  margin-top: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.tracking-city-section h4 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.98rem;
+}
+
+.tracking-city-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.tracking-city-grid.single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.tracking-city-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(191, 209, 233, 0.8);
+  background: linear-gradient(180deg, rgba(246, 250, 255, 0.96), rgba(255, 255, 255, 0.98));
+}
+
+.tracking-city-name {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.tracking-city-card strong {
+  color: var(--primary);
+  font-size: 1.15rem;
+}
+
+.tracking-city-card small {
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
 .tracking-note {
   margin-top: 12px;
   padding: 12px 14px;
@@ -1390,6 +1440,10 @@ body {
 
   .tracking-grid,
   .capture-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tracking-city-grid {
     grid-template-columns: 1fr;
   }
 
