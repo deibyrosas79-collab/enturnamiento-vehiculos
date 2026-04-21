@@ -457,11 +457,13 @@ function toggleDashboardDestinationMenu(event) {
   const willOpen = elements.dashboardDestinationMenu.classList.contains("hidden");
   elements.dashboardDestinationMenu.classList.toggle("hidden", !willOpen);
   elements.dashboardDestinationToggle?.setAttribute("aria-expanded", willOpen ? "true" : "false");
+  elements.dashboardDestinationPicker?.closest(".panel")?.classList.toggle("dropdown-open", willOpen);
 }
 
 function closeDashboardDestinationMenu() {
   elements.dashboardDestinationMenu?.classList.add("hidden");
   elements.dashboardDestinationToggle?.setAttribute("aria-expanded", "false");
+  elements.dashboardDestinationPicker?.closest(".panel")?.classList.remove("dropdown-open");
 }
 
 function handleDashboardDestinationDocumentClick(event) {

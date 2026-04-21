@@ -212,6 +212,10 @@ h3 { margin: 0; }
   overflow: visible;
 }
 
+.panel.dropdown-open {
+  z-index: 140;
+}
+
 .auth-card {
   max-width: 820px;
   margin: 0 auto 26px;
@@ -1190,15 +1194,18 @@ body {
 }
 
 #dashboardDestinationPicker {
-  z-index: auto;
+  z-index: 160;
 }
 
 #dashboardDestinationMenu {
-  position: static;
-  z-index: auto;
-  max-height: 260px;
-  margin-top: 2px;
-  box-shadow: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 180;
+  max-height: 280px;
+  margin-top: 0;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.18);
 }
 
 .multi-select-toggle {
