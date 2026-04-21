@@ -62,6 +62,10 @@ const elements = {
   vehicleForm: document.querySelector("#vehicleForm"),
   carrierSelect: document.querySelector("#carrierId"),
   destinationSelect: document.querySelector("#destinationId"),
+  dashboardDestinationPicker: document.querySelector("#dashboardDestinationPicker"),
+  dashboardDestinationToggle: document.querySelector("#dashboardDestinationToggle"),
+  dashboardDestinationMenu: document.querySelector("#dashboardDestinationMenu"),
+  dashboardDestinationHint: document.querySelector("#dashboardDestinationHint"),
   editCarrierSelect: document.querySelector("#editCarrierId"),
   editDestinationSelect: document.querySelector("#editDestinationIds"),
   editCenterSelect: document.querySelector("#editCenterId"),
@@ -178,6 +182,7 @@ function bindEvents() {
     }
   });
   elements.vehicleForm.addEventListener("submit", submitVehicle);
+  elements.dashboardDestinationToggle?.addEventListener("click", toggleDashboardDestinationMenu);
   elements.destinationForm.addEventListener("submit", submitDestination);
   elements.carrierForm.addEventListener("submit", submitCarrier);
   elements.userForm.addEventListener("submit", submitUser);
@@ -218,6 +223,7 @@ function bindEvents() {
   });
   elements.closeMediaPreviewButton?.addEventListener("click", closeMediaPreviewModal);
   document.addEventListener("click", handleMediaPreviewClick);
+  document.addEventListener("click", handleDashboardDestinationDocumentClick);
 }
 
 async function loadSession() {
@@ -309,7 +315,8 @@ function renderApp() {
   applyRoleVisibility(permissions);
   switchView(getFirstAllowedView(user.role === "CALIDAD" ? "quality" : state.currentView, permissions));
   populateSelect(elements.carrierSelect, carriers, "Selecciona transportadora", (item) => `${item.code} - ${item.name}`);
-  populateSelect(elements.destinationSelect, destinations, "Selecciona destino", (item) => `${item.city} - ${item.zone}`);
+  populateMultiSelect(elements.destinationSelect, destinations, (item) => `${item.city} - ${item.zone}`);
+  renderDashboardDestinationMenu(destinations);
   populateSelect(elements.editCarrierSelect, carriers, "Selecciona transportadora", (item) => `${item.code} - ${item.name}`);
   populateSelect(elements.editDestinationSelect, destinations, "Selecciona destino", (item) => `${item.city} - ${item.zone}`);
   populateSelect(elements.newCenterSelect, centers || [], "Selecciona centro / CEDI", (item) => `${item.code} - ${item.name}`);
@@ -397,6 +404,73 @@ function populateMultiSelect(select, rows, formatter) {
     option.selected = selectedValues.has(row.id);
     select.append(option);
   });
+}
+
+function renderDashboardDestinationMenu(rows) {
+  if (!elements.dashboardDestinationMenu) return;
+  const selectedValues = new Set(Array.from(elements.destinationSelect.selectedOptions || []).map((option) => option.value));
+  elements.dashboardDestinationMenu.innerHTML = rows.map((row) => `
+    <label class="multi-select-option">
+      <input type="checkbox" value="${escapeHtml(row.id)}" ${selectedValues.has(row.id) ? "checked" : ""} />
+      <span class="multi-select-copy">
+        <strong>${escapeHtml(row.city)}</strong>
+        <small>${escapeHtml(row.zone)}</small>
+      </span>
+    </label>
+  `).join("");
+  elements.dashboardDestinationMenu.querySelectorAll("input[type='checkbox']").forEach((checkbox) => {
+    checkbox.addEventListener("change", syncDashboardDestinationSelection);
+  });
+  syncDashboardDestinationSummary();
+}
+
+function syncDashboardDestinationSelection() {
+  const checkedValues = new Set(
+    Array.from(elements.dashboardDestinationMenu.querySelectorAll("input[type='checkbox']:checked"))
+      .map((input) => input.value)
+      .filter(Boolean),
+  );
+  Array.from(elements.destinationSelect.options).forEach((option) => {
+    option.selected = checkedValues.has(option.value);
+  });
+  syncDashboardDestinationSummary();
+}
+
+function syncDashboardDestinationSummary() {
+  if (!elements.dashboardDestinationToggle || !elements.dashboardDestinationHint) return;
+  const selectedRows = Array.from(elements.destinationSelect.selectedOptions || [])
+    .map((option) => state.appState?.destinations?.find((item) => item.id === option.value))
+    .filter(Boolean);
+  const labels = selectedRows.map((item) => `${item.city} - ${item.zone}`);
+  if (!labels.length) {
+    elements.dashboardDestinationToggle.textContent = "Selecciona uno o mas destinos";
+    elements.dashboardDestinationHint.textContent = "Selecciona al menos un destino.";
+    return;
+  }
+  elements.dashboardDestinationToggle.textContent = labels.length === 1 ? labels[0] : `${labels.length} destinos seleccionados`;
+  elements.dashboardDestinationHint.textContent = `Seleccionados: ${labels.join(" | ")}`;
+}
+
+function toggleDashboardDestinationMenu(event) {
+  event?.preventDefault();
+  if (!elements.dashboardDestinationMenu) return;
+  const willOpen = elements.dashboardDestinationMenu.classList.contains("hidden");
+  elements.dashboardDestinationMenu.classList.toggle("hidden", !willOpen);
+  elements.dashboardDestinationToggle?.setAttribute("aria-expanded", willOpen ? "true" : "false");
+}
+
+function closeDashboardDestinationMenu() {
+  elements.dashboardDestinationMenu?.classList.add("hidden");
+  elements.dashboardDestinationToggle?.setAttribute("aria-expanded", "false");
+}
+
+function handleDashboardDestinationDocumentClick(event) {
+  if (!elements.dashboardDestinationPicker || !elements.dashboardDestinationMenu || elements.dashboardDestinationMenu.classList.contains("hidden")) {
+    return;
+  }
+  if (!event.target.closest("#dashboardDestinationPicker")) {
+    closeDashboardDestinationMenu();
+  }
 }
 
 function renderQueueTables() {
@@ -819,6 +893,8 @@ async function submitVehicle(event) {
     });
     elements.vehicleForm.reset();
     Array.from(elements.destinationSelect.options).forEach((option) => { option.selected = false; });
+    renderDashboardDestinationMenu(state.appState?.destinations || []);
+    closeDashboardDestinationMenu();
     await refreshAppState();
     const suitabilityHistory = getPlateSuitabilityHistory(registeredPlate);
     showToast(

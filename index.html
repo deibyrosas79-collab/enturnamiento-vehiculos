@@ -93,7 +93,14 @@
                 <label>P. vacío (kg)<input id="emptyWeightKg" name="emptyWeightKg" required placeholder="Ej: 8400" /></label>
                 <label class="wide">
                   Ciudades / destinos de interés
-                  <select id="destinationId" name="destinationId" required></select>
+                  <div id="dashboardDestinationPicker" class="multi-select-dropdown">
+                    <button id="dashboardDestinationToggle" class="multi-select-toggle" type="button" aria-expanded="false">
+                      Selecciona uno o mas destinos
+                    </button>
+                    <div id="dashboardDestinationMenu" class="multi-select-menu hidden"></div>
+                    <select id="destinationId" name="destinationId" class="hidden" multiple required></select>
+                  </div>
+                  <p id="dashboardDestinationHint" class="muted-text">Selecciona al menos un destino.</p>
                 </label>
                 <div class="wide">
                   <button class="primary" type="submit">Registrar en turno</button>
