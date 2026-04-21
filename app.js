@@ -650,12 +650,21 @@ function renderCityQueues() {
 function renderMastersTables(destinations, carriers, users, permissions) {
   if (permissions?.canManageCatalogs) {
     elements.destinationsTable.innerHTML = renderTable(
-      [["Ciudad", (item) => escapeHtml(item.city)], ["Zona", (item) => escapeHtml(item.zone)], ["Acción", (item) => `<div class="actions"><button class="ghost small-action" data-destination-edit="${item.id}" type="button">Editar</button><button class="danger small-action" data-destination-delete="${item.id}" type="button">Eliminar</button></div>`]],
+      [
+        ["Ciudad", (item) => escapeHtml(item.city)],
+        ["Zona", (item) => escapeHtml(item.zone)],
+        ["Acción", (item) => renderCatalogActions("destination", item.id, permissions)],
+      ],
       destinations,
       "No hay destinos."
     );
     elements.carriersTable.innerHTML = renderTable(
-      [["Código", (item) => escapeHtml(item.code)], ["Transportadora", (item) => escapeHtml(item.name)], ["Tipo de cola", (item) => item.code === "4000801" ? "Fila paralela Diana Agrícola" : "Fila general"], ["Acción", (item) => `<div class="actions"><button class="ghost small-action" data-carrier-edit="${item.id}" type="button">Editar</button><button class="danger small-action" data-carrier-delete="${item.id}" type="button">Eliminar</button></div>`]],
+      [
+        ["Código", (item) => escapeHtml(item.code)],
+        ["Transportadora", (item) => escapeHtml(item.name)],
+        ["Tipo de cola", (item) => item.code === "4000801" ? "Fila paralela Diana Agrícola" : "Fila general"],
+        ["Acción", (item) => renderCatalogActions("carrier", item.id, permissions)],
+      ],
       carriers,
       "No hay transportadoras."
     );
@@ -674,6 +683,28 @@ function renderMastersTables(destinations, carriers, users, permissions) {
     elements.usersTable.innerHTML = `<div class="empty">Solo el administrador general puede ver y crear usuarios.</div>`;
   }
   bindMasterActions();
+}
+
+function renderCatalogActions(entityType, entityId, permissions) {
+  if (!permissions?.canEditCatalogs && !permissions?.canDeleteCatalogs) {
+    return `<span class="muted-text">Solo agregar</span>`;
+  }
+  const buttons = [];
+  if (permissions?.canEditCatalogs) {
+    buttons.push(
+      entityType === "destination"
+        ? `<button class="ghost small-action" data-destination-edit="${entityId}" type="button">Editar</button>`
+        : `<button class="ghost small-action" data-carrier-edit="${entityId}" type="button">Editar</button>`,
+    );
+  }
+  if (permissions?.canDeleteCatalogs) {
+    buttons.push(
+      entityType === "destination"
+        ? `<button class="danger small-action" data-destination-delete="${entityId}" type="button">Eliminar</button>`
+        : `<button class="danger small-action" data-carrier-delete="${entityId}" type="button">Eliminar</button>`,
+    );
+  }
+  return buttons.length ? `<div class="actions">${buttons.join("")}</div>` : `<span class="muted-text">Solo agregar</span>`;
 }
 
 function applySiteSettingsFromCenter(centerId) {
@@ -1469,9 +1500,11 @@ function renderVehicleSupports(item) {
   const links = [];
   if (item.driverSelfieUrl) {
     links.push(renderSupportLink(item.driverSelfieUrl, "Ver selfie"));
+    links.push(renderDownloadLink(item.driverSelfieUrl, `selfie-${item.plate || "vehiculo"}.png`, "Descargar selfie"));
   }
   if (item.driverSignatureUrl) {
     links.push(renderSupportLink(item.driverSignatureUrl, "Ver firma"));
+    links.push(renderDownloadLink(item.driverSignatureUrl, `firma-${item.plate || "vehiculo"}.png`, "Descargar firma"));
   }
   const evidenceCount = getChecklistEvidenceCount(item.latestInspection?.checklist);
   if (evidenceCount > 0) {
@@ -1484,6 +1517,11 @@ function renderSupportLink(url, label) {
   if (!url) return `<span class="muted-text">Sin archivo</span>`;
   const mediaKey = registerPreviewMedia(url, label);
   return `<button class="support-link" type="button" data-media-preview-key="${mediaKey}">${escapeHtml(label)}</button>`;
+}
+
+function renderDownloadLink(url, fileName, label) {
+  if (!url) return "";
+  return `<a class="support-link download" href="${url}" download="${escapeHtml(fileName)}">${escapeHtml(label)}</a>`;
 }
 
 function getChecklistEvidenceCount(checklist) {
@@ -1510,10 +1548,14 @@ function openMediaPreview(url, label) {
     showToast("No hay archivo disponible para visualizar.");
     return;
   }
+  const fileName = buildEvidenceFileName(label || "imagen");
   elements.mediaPreviewTitle.textContent = label || "Vista previa";
   elements.mediaPreviewBody.innerHTML = `
     <div class="media-preview-single">
       <img src="${url}" alt="${escapeHtml(label || "Vista previa")}" />
+      <div class="media-preview-actions">
+        <a class="support-link download" href="${url}" download="${escapeHtml(fileName)}">Descargar imagen</a>
+      </div>
     </div>
   `;
   elements.mediaPreviewModal.classList.remove("hidden");
@@ -1541,6 +1583,9 @@ function openChecklistEvidencePreview(vehicle) {
         <figure class="media-preview-figure">
           <img src="${item.url}" alt="${escapeHtml(item.label)}" />
           <figcaption>${escapeHtml(item.label)}</figcaption>
+          <div class="media-preview-actions">
+            <a class="support-link download" href="${item.url}" download="${escapeHtml(buildEvidenceFileName(`${vehicle?.plate || "vehiculo"}-${item.label}`))}">Descargar evidencia</a>
+          </div>
         </figure>
       `).join("")}
     </div>
@@ -1557,6 +1602,15 @@ function registerPreviewMedia(url, label) {
   const key = `media-${Object.keys(state.mediaPreviewMap).length + 1}`;
   state.mediaPreviewMap[key] = { url, label };
   return key;
+}
+
+function buildEvidenceFileName(label) {
+  return `${String(label || "evidencia")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "evidencia"}.png`;
 }
 
 function renderDestinations(item) {

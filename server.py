@@ -39,6 +39,12 @@ ROLE_ADMIN = "ADMIN"
 ROLE_LOGISTICS = "LOGISTICA"
 ROLE_QUALITY = "CALIDAD"
 VALID_ROLES = {ROLE_ADMIN, ROLE_LOGISTICS, ROLE_QUALITY}
+CATALOG_ADD_ONLY_IDENTITIES = {
+    "samantalozano",
+    "samanta lozano",
+    "katherindelgado",
+    "katherin delgado",
+}
 QUEUE_STATUS_ACTIVE = "QUEUED"
 QUEUE_STATUS_ASSIGNED = "ASSIGNED"
 QUEUE_STATUS_REJECTED = "REJECTED"
@@ -730,6 +736,19 @@ def visible_center_ids_for_user(user: sqlite3.Row, centers: List[Dict[str, Any]]
     return [center_id or DEFAULT_CENTER_ID]
 
 
+def normalize_identity(value: Any) -> str:
+    return clean_text(value).lower().replace(" ", "")
+
+
+def can_add_catalogs(user: sqlite3.Row) -> bool:
+    if user["role"] == ROLE_ADMIN:
+        return True
+    username = normalize_identity(user["username"])
+    full_name = normalize_identity(user["full_name"])
+    allowed = {item.replace(" ", "") for item in CATALOG_ADD_ONLY_IDENTITIES}
+    return username in allowed or full_name in allowed
+
+
 def preferred_center_for_user(user: sqlite3.Row, centers: List[Dict[str, Any]]) -> Dict[str, Any]:
     center_lookup = build_center_lookup(centers)
     center_id = clean_text(user.get("center_id")) if isinstance(user, dict) else clean_text(user["center_id"])
@@ -1170,7 +1189,10 @@ def get_user_state(user: sqlite3.Row, origin: str) -> Dict[str, Any]:
         },
         "permissions": {
             "isAdmin": user["role"] == ROLE_ADMIN,
-            "canManageCatalogs": user["role"] == ROLE_ADMIN,
+            "canManageCatalogs": can_add_catalogs(user),
+            "canAddCatalogs": can_add_catalogs(user),
+            "canEditCatalogs": user["role"] == ROLE_ADMIN,
+            "canDeleteCatalogs": user["role"] == ROLE_ADMIN,
             "canManageUsers": user["role"] == ROLE_ADMIN,
             "canConfigureSite": user["role"] == ROLE_ADMIN,
             "canOperateLogistics": user["role"] in {ROLE_ADMIN, ROLE_LOGISTICS},
@@ -2176,12 +2198,14 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(get_user_state(user, self.request_origin()))
                 return
             if parsed.path == "/api/destinations":
-                self.require_role(user, ROLE_ADMIN)
+                if not can_add_catalogs(user):
+                    raise AppError("No tienes permisos para crear destinos.", 403)
                 add_destination(payload)
                 self.send_json(get_user_state(user, self.request_origin()), 201)
                 return
             if parsed.path == "/api/carriers":
-                self.require_role(user, ROLE_ADMIN)
+                if not can_add_catalogs(user):
+                    raise AppError("No tienes permisos para crear transportadoras.", 403)
                 add_carrier(payload)
                 self.send_json(get_user_state(user, self.request_origin()), 201)
                 return
