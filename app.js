@@ -1500,11 +1500,9 @@ function renderVehicleSupports(item) {
   const links = [];
   if (item.driverSelfieUrl) {
     links.push(renderSupportLink(item.driverSelfieUrl, "Ver selfie"));
-    links.push(renderDownloadLink(item.driverSelfieUrl, `selfie-${item.plate || "vehiculo"}.png`, "Descargar selfie"));
   }
   if (item.driverSignatureUrl) {
     links.push(renderSupportLink(item.driverSignatureUrl, "Ver firma"));
-    links.push(renderDownloadLink(item.driverSignatureUrl, `firma-${item.plate || "vehiculo"}.png`, "Descargar firma"));
   }
   const evidenceCount = getChecklistEvidenceCount(item.latestInspection?.checklist);
   if (evidenceCount > 0) {
@@ -1517,11 +1515,6 @@ function renderSupportLink(url, label) {
   if (!url) return `<span class="muted-text">Sin archivo</span>`;
   const mediaKey = registerPreviewMedia(url, label);
   return `<button class="support-link" type="button" data-media-preview-key="${mediaKey}">${escapeHtml(label)}</button>`;
-}
-
-function renderDownloadLink(url, fileName, label) {
-  if (!url) return "";
-  return `<a class="support-link download" href="${url}" download="${escapeHtml(fileName)}">${escapeHtml(label)}</a>`;
 }
 
 function getChecklistEvidenceCount(checklist) {
