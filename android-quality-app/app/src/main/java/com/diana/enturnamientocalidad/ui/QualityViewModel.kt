@@ -23,6 +23,7 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.time.OffsetDateTime
 import java.time.ZoneId
+import java.util.concurrent.TimeUnit
 
 data class QualityUiState(
     val loading: Boolean = false,
@@ -70,8 +71,10 @@ class QualityViewModel(
             runCatching { repository.getAppState() }
                 .onSuccess { applyState(it, repository::clearSession) }
                 .onFailure {
-                    repository.clearSession()
-                    _uiState.value = QualityUiState(errorMessage = humanizeError(it))
+                    _uiState.value = _uiState.value.copy(
+                        loading = false,
+                        errorMessage = humanizeError(it),
+                    )
                 }
         }
     }
@@ -173,10 +176,16 @@ class QualityViewModel(
         fun factory(context: Context): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 val sessionStore = SessionStore(context.applicationContext)
-                val logger = HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC }
+                val logger = HttpLoggingInterceptor().apply {
+                    level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC else HttpLoggingInterceptor.Level.NONE
+                }
                 val okHttp = OkHttpClient.Builder()
                     .addInterceptor(AuthInterceptor { sessionStore.getToken() })
                     .addInterceptor(logger)
+                    .connectTimeout(10, TimeUnit.SECONDS)
+                    .readTimeout(20, TimeUnit.SECONDS)
+                    .writeTimeout(20, TimeUnit.SECONDS)
+                    .retryOnConnectionFailure(true)
                     .build()
                 val retrofit = Retrofit.Builder()
                     .baseUrl(BuildConfig.BASE_URL)

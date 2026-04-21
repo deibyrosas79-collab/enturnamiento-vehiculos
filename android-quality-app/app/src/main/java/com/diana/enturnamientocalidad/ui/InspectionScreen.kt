@@ -65,6 +65,7 @@ private val inspectionChecklist = listOf(
     ChecklistDefinition("damage", "Libre de orificios y averias", true),
     ChecklistDefinition("humidity", "Libre de humedad", true),
     ChecklistDefinition("infestation", "Libre de infestacion", true),
+    ChecklistDefinition("woodenStakesPestFree", "Estacas de madera del vehiculo libres de plagas (paredes y pisos)", true),
     ChecklistDefinition("bulkWallsFloor", "Paredes y piso limpios y en buen estado", true),
     ChecklistDefinition("containerHoles", "Trompos limpios y con proteccion", true),
     ChecklistDefinition("fumigationIn", "Fumigacion ingreso", true),
@@ -101,7 +102,7 @@ fun InspectionScreen(
             inspectionChecklist.forEach { definition ->
                 put(
                     definition.key,
-                    inspection?.checklist?.get(definition.key)?.status ?: "CUMPLE",
+                    inspection?.checklist?.get(definition.key)?.status.orEmpty(),
                 )
             }
         }
@@ -113,6 +114,9 @@ fun InspectionScreen(
     }
     var observations by rememberSaveable(vehicle?.id) {
         mutableStateOf(inspection?.observationsText.orEmpty())
+    }
+    var localValidationError by rememberSaveable(vehicle?.id) {
+        mutableStateOf<String?>(null)
     }
     var finalDecision by rememberSaveable(vehicle?.id) {
         mutableStateOf(
@@ -231,10 +235,13 @@ fun InspectionScreen(
                     ?: 0
                 ChecklistCard(
                     definition = definition,
-                    status = statusMap[definition.key] ?: "CUMPLE",
+                    status = statusMap[definition.key].orEmpty(),
                     existingEvidenceCount = existingEvidenceCount,
                     selectedEvidenceCount = evidenceUris[definition.key]?.size ?: 0,
-                    onStatusChange = { statusMap[definition.key] = it },
+                    onStatusChange = {
+                        statusMap[definition.key] = it
+                        localValidationError = null
+                    },
                     onPickEvidence = {
                         pickerTarget = definition.key
                         picker.launch(
@@ -242,6 +249,16 @@ fun InspectionScreen(
                         )
                     },
                 )
+            }
+
+            if (!localValidationError.isNullOrBlank()) {
+                item {
+                    Text(
+                        text = localValidationError.orEmpty(),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
             }
 
             item {
@@ -315,13 +332,21 @@ fun InspectionScreen(
             item {
                 Button(
                     onClick = {
+                        val missingDefinition = inspectionChecklist.firstOrNull { definition ->
+                            statusMap[definition.key].isNullOrBlank()
+                        }
+                        if (missingDefinition != null) {
+                            localValidationError = "Debes marcar Cumple o No cumple en: ${missingDefinition.label}."
+                            return@Button
+                        }
+                        localValidationError = null
                         val checklist = inspectionChecklist.associate { definition ->
                             val evidences = evidenceUris[definition.key]
                                 ?.map { uri -> uriToDataUrl(context, uri) }
                                 .orEmpty()
                             definition.key to ChecklistSubmissionItem(
                                 label = definition.label,
-                                status = statusMap[definition.key] ?: "CUMPLE",
+                                status = statusMap[definition.key].orEmpty(),
                                 evidences = evidences,
                             )
                         }

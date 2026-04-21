@@ -677,6 +677,12 @@ def build_auth_payload(user: sqlite3.Row, origin: str, token: str) -> Dict[str, 
     return state
 
 
+def build_mobile_auth_payload(user: sqlite3.Row, token: str) -> Dict[str, Any]:
+    state = build_mobile_quality_state(user)
+    state["sessionToken"] = token
+    return state
+
+
 def get_authenticated_user_by_token(db: sqlite3.Connection, token: str) -> Optional[sqlite3.Row]:
     clear_expired_sessions(db)
     return db.execute(
@@ -747,7 +753,23 @@ def parse_json_field(value: Optional[str], default: Any) -> Any:
         return default
 
 
-def serialize_inspection(row: sqlite3.Row) -> Dict[str, Any]:
+def _sanitize_checklist_for_client(checklist: Dict[str, Any], include_media: bool) -> Dict[str, Any]:
+    if include_media:
+        return checklist
+    sanitized: Dict[str, Any] = {}
+    for key, item in checklist.items():
+        if not isinstance(item, dict):
+            sanitized[key] = item
+            continue
+        copied = dict(item)
+        evidences = copied.get("evidences") or []
+        copied["evidences"] = ["" for _ in evidences]
+        sanitized[key] = copied
+    return sanitized
+
+
+def serialize_inspection(row: sqlite3.Row, include_media: bool = True) -> Dict[str, Any]:
+    checklist = _sanitize_checklist_for_client(parse_json_field(row["checklist_json"], {}), include_media)
     return {
         "id": row["id"],
         "vehicleId": row["vehicle_id"],
@@ -757,22 +779,22 @@ def serialize_inspection(row: sqlite3.Row) -> Dict[str, Any]:
         "finalDecision": row["final_decision"],
         "suitability": parse_json_field(row["suitability_json"], []),
         "observationsText": row["observations_text"],
-        "checklist": parse_json_field(row["checklist_json"], {}),
+        "checklist": checklist,
         "findingsSummary": row["findings_summary"],
     }
 
 
-def load_inspections_by_vehicle(db: sqlite3.Connection) -> Dict[str, List[Dict[str, Any]]]:
+def load_inspections_by_vehicle(db: sqlite3.Connection, include_media: bool = True) -> Dict[str, List[Dict[str, Any]]]:
     grouped: Dict[str, List[Dict[str, Any]]] = {}
     rows = db.execute(
         "SELECT * FROM quality_inspections ORDER BY reviewed_at DESC, created_at DESC"
     ).fetchall()
     for row in rows:
-        grouped.setdefault(row["vehicle_id"], []).append(serialize_inspection(row))
+        grouped.setdefault(row["vehicle_id"], []).append(serialize_inspection(row, include_media=include_media))
     return grouped
 
 
-def load_latest_inspections(db: sqlite3.Connection) -> Dict[str, Dict[str, Any]]:
+def load_latest_inspections(db: sqlite3.Connection, include_media: bool = True) -> Dict[str, Dict[str, Any]]:
     inspections: Dict[str, Dict[str, Any]] = {}
     rows = db.execute(
         "SELECT * FROM quality_inspections ORDER BY reviewed_at DESC, created_at DESC"
@@ -780,7 +802,7 @@ def load_latest_inspections(db: sqlite3.Connection) -> Dict[str, Dict[str, Any]]
     for row in rows:
         if row["vehicle_id"] in inspections:
             continue
-        inspections[row["vehicle_id"]] = serialize_inspection(row)
+        inspections[row["vehicle_id"]] = serialize_inspection(row, include_media=include_media)
     return inspections
 
 
@@ -866,6 +888,7 @@ def serialize_vehicle(
     latest_inspections: Dict[str, Dict[str, Any]],
     destination_lookup: Dict[str, Dict[str, Any]],
     city_turn_map: Dict[str, Dict[str, int]],
+    include_media: bool = True,
 ) -> Dict[str, Any]:
     latest_inspection = latest_inspections.get(row["id"])
     created_local = iso_to_local(row["created_at"])
@@ -888,8 +911,8 @@ def serialize_vehicle(
         "driverId": row["driver_id"],
         "driverPhone": row["driver_phone"],
         "emptyWeightKg": row["empty_weight_kg"],
-        "driverSelfieUrl": row["driver_selfie_url"],
-        "driverSignatureUrl": row["driver_signature_url"],
+        "driverSelfieUrl": row["driver_selfie_url"] if include_media else None,
+        "driverSignatureUrl": row["driver_signature_url"] if include_media else None,
         "destinationId": row["destination_id"],
         "destinationIds": parse_destination_ids(row),
         "destinationOptions": build_destination_options(row, destination_lookup),
@@ -911,6 +934,18 @@ def serialize_vehicle(
         "lastQualityAt": row["last_quality_at"],
         "latestInspection": latest_inspection,
         "reviewLeadMinutes": review_lead_minutes,
+    }
+
+
+def serialize_authenticated_user(user: sqlite3.Row) -> Dict[str, Any]:
+    return {
+        "id": user["id"],
+        "username": user["username"],
+        "fullName": user["full_name"],
+        "role": user["role"],
+        "centerId": user["center_id"],
+        "centerCode": user["center_code"],
+        "centerName": user["center_name"],
     }
 
 
@@ -1099,15 +1134,7 @@ def get_user_state(user: sqlite3.Row, origin: str) -> Dict[str, Any]:
     qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=280x280&data={registration_url}"
 
     return {
-        "user": {
-            "id": user["id"],
-            "username": user["username"],
-            "fullName": user["full_name"],
-            "role": user["role"],
-            "centerId": user["center_id"],
-            "centerCode": user["center_code"],
-            "centerName": user["center_name"],
-        },
+        "user": serialize_authenticated_user(user),
         "centers": centers,
         "destinations": destinations,
         "carriers": carriers,
@@ -1151,6 +1178,77 @@ def get_user_state(user: sqlite3.Row, origin: str) -> Dict[str, Any]:
         },
         "publicRegistrationUrl": registration_url,
         "publicQrUrl": qr_url,
+    }
+
+
+def build_mobile_quality_state(user: sqlite3.Row) -> Dict[str, Any]:
+    with get_connection() as db:
+        centers = load_centers(db)
+        visible_center_ids = visible_center_ids_for_user(user, centers)
+        placeholders = ",".join("?" for _ in visible_center_ids)
+        destinations = [
+            serialize_destination(row)
+            for row in db.execute("SELECT * FROM destinations ORDER BY zone, city").fetchall()
+        ]
+        destination_lookup = build_destination_lookup(destinations)
+        queued_rows = db.execute(
+            f"SELECT * FROM vehicles WHERE center_id IN ({placeholders}) AND status = 'QUEUED' ORDER BY queue_position, created_at",
+            visible_center_ids,
+        ).fetchall()
+        rejected_rows = db.execute(
+            f"SELECT * FROM vehicles WHERE center_id IN ({placeholders}) AND status = 'REJECTED' ORDER BY rejected_at DESC, created_at DESC",
+            visible_center_ids,
+        ).fetchall()
+        latest_inspections = load_latest_inspections(db, include_media=False)
+
+    turn_positions = calculate_turn_positions(queued_rows)
+    city_turn_map, _city_queue_lists = build_city_turn_maps(queued_rows, destination_lookup)
+    queued = [
+        serialize_vehicle(
+            row,
+            turn_positions,
+            latest_inspections,
+            destination_lookup,
+            city_turn_map,
+            include_media=False,
+        )
+        for row in queued_rows
+    ]
+    rejected = [
+        serialize_vehicle(
+            row,
+            turn_positions,
+            latest_inspections,
+            destination_lookup,
+            city_turn_map,
+            include_media=False,
+        )
+        for row in rejected_rows
+    ]
+    quality_pending = [vehicle for vehicle in queued if vehicle["qualityStatus"] in {QUALITY_PENDING, QUALITY_IN_PROGRESS}]
+    quality_rework = [vehicle for vehicle in queued if vehicle["qualityStatus"] == QUALITY_REWORK]
+    quality_approved = [vehicle for vehicle in queued if vehicle["qualityStatus"] == QUALITY_APPROVED]
+    quality_rejected = [vehicle for vehicle in rejected if vehicle["qualityStatus"] == QUALITY_REJECTED]
+    today_local = now_local()
+    approved_today = [
+        item for item in quality_approved
+        if item.get("latestInspection") and is_same_local_day(item["latestInspection"].get("reviewedAt"), today_local)
+    ]
+    rejected_today = [
+        item for item in quality_rejected
+        if item.get("latestInspection") and is_same_local_day(item["latestInspection"].get("reviewedAt"), today_local)
+    ]
+    return {
+        "user": serialize_authenticated_user(user),
+        "quality": {
+            "pending": quality_pending,
+            "rework": quality_rework,
+            "approved": quality_approved,
+            "rejected": quality_rejected,
+            "inspections": [],
+            "dailyApprovedCount": len(approved_today),
+            "dailyRejectedCount": len(rejected_today),
+        },
     }
 
 
@@ -1983,6 +2081,12 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/healthz":
                 self.send_json({"status": "ok", "time": now_iso()})
                 return
+            if parsed.path == "/api/mobile/quality-state":
+                user = self.require_user()
+                if not user:
+                    return
+                self.send_json(build_mobile_quality_state(user))
+                return
             if parsed.path == "/api/auth/me":
                 user = self.require_user()
                 if not user:
@@ -2024,6 +2128,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             payload = self.read_json()
 
+            if parsed.path == "/api/mobile/auth/login":
+                self.login(payload, mobile=True)
+                return
             if parsed.path == "/api/auth/login":
                 self.login(payload)
                 return
@@ -2107,6 +2214,12 @@ class Handler(BaseHTTPRequestHandler):
                 save_quality_inspection(quality_vehicle_id, user, payload)
                 self.send_json(get_user_state(self.get_fresh_user(user["id"]), self.request_origin()))
                 return
+            if parsed.path.startswith("/api/mobile/quality/") and parsed.path.endswith("/inspect"):
+                self.require_any_role(user, {ROLE_ADMIN, ROLE_QUALITY})
+                quality_vehicle_id = parsed.path.split("/")[4]
+                save_quality_inspection(quality_vehicle_id, user, payload)
+                self.send_json(build_mobile_quality_state(self.get_fresh_user(user["id"])))
+                return
 
             self.send_error_json("Ruta no encontrada.", 404)
         except AppError as error:
@@ -2184,7 +2297,7 @@ class Handler(BaseHTTPRequestHandler):
         self.add_common_headers()
         self.end_headers()
 
-    def login(self, payload: Dict[str, Any]) -> None:
+    def login(self, payload: Dict[str, Any], mobile: bool = False) -> None:
         username = clean_text(payload.get("username")).lower()
         password = str(payload.get("password") or "")
         if not username or not password:
@@ -2194,7 +2307,7 @@ class Handler(BaseHTTPRequestHandler):
             if not user or not verify_password(password, user["password_hash"]):
                 raise AppError("Credenciales invalidas.", 401)
             token = create_session(db, user["id"])
-            state = build_auth_payload(user, self.request_origin(), token)
+            state = build_mobile_auth_payload(user, token) if mobile else build_auth_payload(user, self.request_origin(), token)
         self.send_json(
             state,
             headers={"Set-Cookie": f"{SESSION_COOKIE}={token}; HttpOnly; Path=/; SameSite=Lax"},

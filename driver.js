@@ -1,22 +1,30 @@
-﻿const API_BASE = window.location.protocol === "file:" ? "http://localhost:8000/api" : "/api";
+const API_BASE = window.location.protocol === "file:" ? "http://localhost:8000/api" : "/api";
 
 const state = {
   gps: null,
+  gpsAllowed: false,
+  geofenceMessage: "Debes validar tu ubicacion dentro de planta.",
   config: null,
   centerId: new URLSearchParams(window.location.search).get("center") || "",
   trackingToken: localStorage.getItem("driver_tracking_token") || "",
   driverSelfieDataUrl: "",
   signatureDataUrl: "",
   signatureHasDrawn: false,
+  destinationMenuOpen: false,
 };
 
 const elements = {
   requestGpsButton: document.querySelector("#requestGpsButton"),
   gpsStatusTitle: document.querySelector("#gpsStatusTitle"),
   gpsStatusText: document.querySelector("#gpsStatusText"),
+  geofenceAlert: document.querySelector("#geofenceAlert"),
+  geofenceAlertText: document.querySelector("#geofenceAlertText"),
   publicVehicleForm: document.querySelector("#publicVehicleForm"),
   publicCarrierId: document.querySelector("#publicCarrierId"),
-  publicDestinationId: document.querySelector("#publicDestinationId"),
+  publicDestinationToggle: document.querySelector("#publicDestinationToggle"),
+  publicDestinationMenu: document.querySelector("#publicDestinationMenu"),
+  publicDestinationHint: document.querySelector("#publicDestinationHint"),
+  publicDestinationTurns: document.querySelector("#publicDestinationTurns"),
   publicSelfieInput: document.querySelector("#publicSelfieInput"),
   publicSelfiePreview: document.querySelector("#publicSelfiePreview"),
   signatureCanvas: document.querySelector("#signatureCanvas"),
@@ -26,6 +34,8 @@ const elements = {
   publicTrackingCard: document.querySelector("#publicTrackingCard"),
   publicQueueList: document.querySelector("#publicQueueList"),
   publicCityQueues: document.querySelector("#publicCityQueues"),
+  publicQueuePanel: document.querySelector("#publicQueuePanel"),
+  publicCityQueuesPanel: document.querySelector("#publicCityQueuesPanel"),
   toast: document.querySelector("#toast"),
 };
 
@@ -38,13 +48,16 @@ bootstrap();
 function bootstrap() {
   elements.requestGpsButton.addEventListener("click", requestGps);
   elements.publicVehicleForm.addEventListener("submit", submitPublicRegistration);
-  elements.publicVehicleForm.addEventListener("input", () => {
-    updateSubmitState();
+  elements.publicVehicleForm.addEventListener("input", updateSubmitState);
+  elements.publicCarrierId.addEventListener("change", () => {
+    renderSelectedCityTurnsPreview();
     renderQueue(state.config?.liveQueue || []);
     renderCityQueues(state.config?.cityQueues || []);
   });
   elements.publicSelfieInput.addEventListener("change", handleSelfieChange);
   elements.clearSignatureButton.addEventListener("click", clearSignature);
+  elements.publicDestinationToggle.addEventListener("click", toggleDestinationMenu);
+  document.addEventListener("click", handleDocumentClick);
   setupSignaturePad();
   loadConfig();
   if (state.trackingToken) {
@@ -52,34 +65,26 @@ function bootstrap() {
   }
   setInterval(refreshTracking, 20000);
   setInterval(loadQueueOnly, 20000);
-  updateSubmitState();
+  updateRegistrationGate();
 }
 
-async function loadConfig() {
+async function loadConfig(centerIdOverride = state.centerId) {
   try {
-    const data = await request(withCenterQuery("/public/config"));
+    const data = await request(withCenterQuery("/public/config", centerIdOverride));
     state.config = data;
-    state.centerId = data.centerId || state.centerId;
+    state.centerId = data.centerId || centerIdOverride || state.centerId;
     populateSelect(elements.publicCarrierId, data.carriers, "Selecciona transportadora", (item) => `${item.code} - ${item.name}`);
-    populateSelect(elements.publicDestinationId, data.destinations, "Selecciona destino", (item) => `${item.city} - ${item.zone}`);
+    renderDestinationMenu(data.destinations || []);
     renderQueue(data.liveQueue || []);
     renderCityQueues(data.cityQueues || []);
-    document.title = `Registro QR ${data.siteName || "conductores"}`;
-    const eyebrow = document.querySelector(".public-hero .eyebrow");
-    const title = document.querySelector(".public-hero h1");
-    const description = document.querySelector(".public-hero .hero-text");
-    if (eyebrow) {
-      eyebrow.textContent = `Registro QR · ${data.siteName || "Planta principal"}`;
-    }
-    if (title) {
-      title.textContent = "Registro de conductores";
-    }
-    if (description) {
-      description.textContent = `Completa tu enturnamiento solo dentro de la sede autorizada. Debes validar GPS, tomar selfie y firmar en pantalla. Centro activo: ${data.siteName || "Planta principal"}.`;
-    }
+    updateHero(data);
     if (!data.siteConfigured) {
-      setGpsStatus("Geocerca sin configurar", "Logistica debe configurar la ubicacion de planta antes de usar el registro por QR.");
+      state.gpsAllowed = false;
+      state.geofenceMessage = "Logistica debe configurar la geocerca antes de usar este registro QR.";
+    } else if (!state.gps) {
+      state.geofenceMessage = "Debes validar tu ubicacion para activar el formulario.";
     }
+    updateRegistrationGate();
   } catch (error) {
     showToast(error.message);
   }
@@ -87,49 +92,169 @@ async function loadConfig() {
 
 async function loadQueueOnly() {
   try {
-    const data = await request(withCenterQuery("/public/config"));
+    const data = await request(withCenterQuery("/public/config", state.centerId));
     state.config = data;
-    state.centerId = data.centerId || state.centerId;
     renderQueue(data.liveQueue || []);
     renderCityQueues(data.cityQueues || []);
-  } catch {}
+    renderSelectedCityTurnsPreview();
+  } catch {
+    // noop
+  }
+}
+
+function updateHero(data) {
+  document.title = `Registro QR ${data.siteName || "conductores"}`;
+  const eyebrow = document.querySelector(".public-hero .eyebrow");
+  const title = document.querySelector(".public-hero h1");
+  const description = document.querySelector(".public-hero .hero-text");
+  if (eyebrow) eyebrow.textContent = `Registro QR · ${data.siteName || "Planta principal"}`;
+  if (title) title.textContent = "Registro de conductores";
+  if (description) {
+    description.textContent = `Completa tu enturnamiento solo dentro de la sede autorizada. Debes validar GPS, tomar selfie y firmar en pantalla. Centro activo: ${data.siteName || "Planta principal"}.`;
+  }
 }
 
 function populateSelect(select, rows, placeholder, formatter) {
+  const selected = select.value;
   select.innerHTML = "";
   select.append(new Option(placeholder, "", true, true));
-  rows.forEach((row) => select.append(new Option(formatter(row), row.id)));
+  rows.forEach((row) => {
+    const option = new Option(formatter(row), row.id);
+    option.selected = row.id === selected;
+    select.append(option);
+  });
+}
+
+function renderDestinationMenu(rows) {
+  const selected = new Set(selectedDestinationIds());
+  elements.publicDestinationMenu.innerHTML = rows.map((row) => `
+    <label class="multi-select-option">
+      <input type="checkbox" value="${escapeHtml(row.id)}" ${selected.has(row.id) ? "checked" : ""} />
+      <span>${escapeHtml(`${row.city} - ${row.zone}`)}</span>
+    </label>
+  `).join("");
+  elements.publicDestinationMenu.querySelectorAll("input[type='checkbox']").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      syncDestinationSummary();
+      renderSelectedCityTurnsPreview();
+      updateSubmitState();
+    });
+  });
+  syncDestinationSummary();
+  renderSelectedCityTurnsPreview();
+}
+
+function selectedDestinationIds() {
+  return Array.from(elements.publicDestinationMenu.querySelectorAll("input[type='checkbox']:checked"))
+    .map((input) => input.value)
+    .filter(Boolean);
+}
+
+function syncDestinationSummary() {
+  const ids = selectedDestinationIds();
+  const labels = ids
+    .map((id) => state.config?.destinations?.find((item) => item.id === id))
+    .filter(Boolean)
+    .map((item) => `${item.city} - ${item.zone}`);
+  elements.publicDestinationToggle.textContent = labels.length
+    ? labels.join(", ")
+    : "Selecciona uno o mas destinos";
+  elements.publicDestinationHint.textContent = labels.length
+    ? `${labels.length} destino(s) seleccionado(s).`
+    : "Selecciona al menos un destino.";
+}
+
+function toggleDestinationMenu(event) {
+  if (event) event.preventDefault();
+  if (elements.publicDestinationToggle.disabled) return;
+  state.destinationMenuOpen = !state.destinationMenuOpen;
+  elements.publicDestinationMenu.classList.toggle("hidden", !state.destinationMenuOpen);
+  elements.publicDestinationToggle.setAttribute("aria-expanded", state.destinationMenuOpen ? "true" : "false");
+}
+
+function closeDestinationMenu() {
+  state.destinationMenuOpen = false;
+  elements.publicDestinationMenu.classList.add("hidden");
+  elements.publicDestinationToggle.setAttribute("aria-expanded", "false");
+}
+
+function handleDocumentClick(event) {
+  if (!state.destinationMenuOpen) return;
+  const inside = event.target.closest("#publicDestinationPicker");
+  if (!inside) closeDestinationMenu();
+}
+
+function renderSelectedCityTurnsPreview() {
+  const destinationIds = selectedDestinationIds();
+  const queueGroup = selectedQueueGroup();
+  if (!destinationIds.length) {
+    elements.publicDestinationTurns.innerHTML = "";
+    return;
+  }
+  const chips = destinationIds.map((id) => {
+    const destination = state.config?.destinations?.find((item) => item.id === id);
+    if (!destination) return "";
+    const cityGroup = (state.config?.cityQueues || []).find((item) => item.city === destination.city);
+    const visibleRows = (cityGroup?.vehicles || []).filter((row) => !queueGroup || row.queueGroup === queueGroup);
+    const estimatedTurn = visibleRows.length + 1;
+    return `<span class="city-turn-chip">${escapeHtml(destination.city)}: turno estimado ${estimatedTurn}</span>`;
+  }).filter(Boolean);
+  elements.publicDestinationTurns.innerHTML = chips.join("");
 }
 
 function requestGps() {
   if (!navigator.geolocation) {
-    setGpsStatus("GPS no disponible", "Este dispositivo no soporta geolocalizacion.");
+    state.gps = null;
+    state.gpsAllowed = false;
+    state.geofenceMessage = "Este dispositivo no soporta geolocalizacion.";
+    setGpsStatus("GPS no disponible", state.geofenceMessage);
+    updateRegistrationGate();
     return;
   }
   setGpsStatus("Validando ubicacion", "Espera unos segundos mientras se confirma tu posicion.");
   navigator.geolocation.getCurrentPosition(
-    (position) => {
+    async (position) => {
       state.gps = {
         lat: position.coords.latitude,
         lng: position.coords.longitude,
       };
-      detectCenterFromGps();
-      setGpsStatus("Ubicacion lista", "Ahora puedes registrarte en el turno.");
-      updateSubmitState();
+      const match = detectCenterFromGps();
+      if (!match) {
+        state.gpsAllowed = false;
+        state.geofenceMessage = "Estas fuera de la geocerca. Todos los campos quedan bloqueados hasta que ingreses a Yopal centro 1010 o Espinal centro 1000.";
+        setGpsStatus("Fuera de planta", state.geofenceMessage);
+        updateRegistrationGate();
+        return;
+      }
+      state.gpsAllowed = true;
+      state.geofenceMessage = `Ubicacion validada en ${match.name}. Ya puedes diligenciar el formulario.`;
+      if (match.id !== state.centerId) {
+        await loadConfig(match.id);
+      } else {
+        updateRegistrationGate();
+      }
+      setGpsStatus("Ubicacion validada", state.geofenceMessage);
     },
     (error) => {
       state.gps = null;
-      setGpsStatus("GPS bloqueado", `No se pudo obtener tu ubicacion: ${error.message}`);
-      updateSubmitState();
+      state.gpsAllowed = false;
+      state.geofenceMessage = `No se pudo obtener tu ubicacion: ${error.message}`;
+      setGpsStatus("GPS bloqueado", state.geofenceMessage);
+      updateRegistrationGate();
     },
-    { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+    { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 },
   );
 }
 
 async function submitPublicRegistration(event) {
   event.preventDefault();
-  if (!state.gps) {
-    showToast("Primero debes validar tu GPS.");
+  if (!state.gpsAllowed || !state.gps) {
+    showToast("Debes validar que estas dentro de una planta autorizada.");
+    return;
+  }
+  const destinationIds = selectedDestinationIds();
+  if (!destinationIds.length) {
+    showToast("Debes seleccionar al menos un destino.");
     return;
   }
   if (!state.driverSelfieDataUrl) {
@@ -138,11 +263,6 @@ async function submitPublicRegistration(event) {
   }
   if (!state.signatureDataUrl) {
     showToast("Debes firmar en pantalla antes de registrarte.");
-    return;
-  }
-  const destinationIds = selectedDestinationIds();
-  if (!destinationIds.length) {
-    showToast("Debes seleccionar al menos un destino.");
     return;
   }
   const payload = {
@@ -160,14 +280,13 @@ async function submitPublicRegistration(event) {
     driverSignatureDataUrl: state.signatureDataUrl,
   };
   try {
-    const data = await request(withCenterQuery("/public/register"), { method: "POST", body: payload });
+    const data = await request(withCenterQuery("/public/register", state.centerId), { method: "POST", body: payload });
     state.trackingToken = data.vehicle.publicTrackingToken;
     localStorage.setItem("driver_tracking_token", state.trackingToken);
     elements.publicVehicleForm.reset();
-    Array.from(elements.publicDestinationId.options).forEach((option) => { option.selected = false; });
     resetRegistrationMedia();
+    await refreshTracking();
     await loadQueueOnly();
-    renderTracking(data);
     showToast("Registro completado.");
   } catch (error) {
     showToast(error.message);
@@ -175,30 +294,64 @@ async function submitPublicRegistration(event) {
 }
 
 async function refreshTracking() {
-  if (!state.trackingToken) return;
+  if (!state.trackingToken) {
+    togglePublicQueuePanels(true);
+    return;
+  }
   try {
     const data = await request(`/public/tracking/${encodeURIComponent(state.trackingToken)}`);
     renderTracking(data);
-  } catch {}
+  } catch {
+    // noop
+  }
 }
 
 function renderTracking(data) {
   const vehicle = data.vehicle;
+  const cityTurns = Object.entries(vehicle.cityTurns || {});
+  const observations = vehicle.latestInspection?.observationsText || vehicle.latestInspection?.findingsSummary || vehicle.rejectionReason || "";
   elements.publicTrackingCard.innerHTML = `
-    <h3>${vehicle.plate}</h3>
-    <p><strong>Turno actual:</strong> ${vehicle.turnPosition || "-"}</p>
-    <p><strong>Cola:</strong> ${vehicle.queueGroupLabel || "-"}</p>
-    <p><strong>Estado logistica:</strong> ${translateLogisticsStatus(vehicle.status)}</p>
-    <p><strong>Estado calidad:</strong> ${translateQualityStatus(vehicle.qualityStatus)}</p>
-    <p><strong>Transportadora:</strong> ${vehicle.carrier}</p>
-    <p><strong>Destinos:</strong> ${renderDestinationsText(vehicle)}</p>
-    <p><strong>Selfie:</strong> ${vehicle.driverSelfieUrl ? `<a href="${encodeURI(vehicle.driverSelfieUrl)}" target="_blank" rel="noopener noreferrer">Ver registro</a>` : "Pendiente"}</p>
-    <p><strong>Firma:</strong> ${vehicle.driverSignatureUrl ? `<a href="${encodeURI(vehicle.driverSignatureUrl)}" target="_blank" rel="noopener noreferrer">Ver firma</a>` : "Pendiente"}</p>
-    <p><strong>Al frente de la fila:</strong> ${data.frontOfQueue ? data.frontOfQueue.plate : "Sin fila"}</p>
-    <p class="muted-text">Actualiza automaticamente cada 20 segundos.</p>
+    <div class="tracking-grid">
+      <div>
+        <h3>${escapeHtml(vehicle.plate)}</h3>
+        <p><strong>Transportadora:</strong> ${escapeHtml(vehicle.carrier)}</p>
+        <p><strong>Conductor:</strong> ${escapeHtml(vehicle.driverName)}</p>
+        <p><strong>Estado logistica:</strong> ${escapeHtml(translateLogisticsStatus(vehicle.status))}</p>
+        <p><strong>Estado calidad:</strong> ${escapeHtml(translateQualityStatus(vehicle.qualityStatus))}</p>
+        <p><strong>Turno general:</strong> ${vehicle.turnPosition || "-"}</p>
+        <p><strong>Destinos:</strong> ${escapeHtml(renderDestinationsText(vehicle))}</p>
+        ${cityTurns.length ? `
+          <div class="selected-city-turns compact">
+            ${cityTurns.map(([city, turn]) => `<span class="city-turn-chip">${escapeHtml(city)}: turno ${turn}</span>`).join("")}
+          </div>
+        ` : ""}
+        ${observations ? `<div class="tracking-note"><strong>Observaciones:</strong> ${escapeHtml(observations)}</div>` : ""}
+      </div>
+      <div class="driver-media-grid">
+        ${renderTrackingMedia(vehicle.driverSelfieUrl, "Selfie")}
+        ${renderTrackingMedia(vehicle.driverSignatureUrl, "Firma")}
+      </div>
+    </div>
+    <p class="muted-text">Actualiza automaticamente cada 20 segundos. Frente de la fila: ${escapeHtml(data.frontOfQueue?.plate || "Sin fila")}</p>
   `;
-  renderQueue(state.config?.liveQueue || [], vehicle.queueGroup);
-  renderCityQueues(state.config?.cityQueues || [], vehicle.queueGroup);
+  togglePublicQueuePanels(false);
+}
+
+function renderTrackingMedia(url, label) {
+  if (!url) {
+    return `<div class="capture-card compact"><strong>${escapeHtml(label)}</strong><span class="muted-text">Sin archivo</span></div>`;
+  }
+  return `
+    <div class="capture-card compact">
+      <strong>${escapeHtml(label)}</strong>
+      <img class="tracking-media-preview" src="${url}" alt="${escapeHtml(label)}" />
+    </div>
+  `;
+}
+
+function togglePublicQueuePanels(show) {
+  elements.publicQueuePanel.classList.toggle("hidden", !show);
+  elements.publicCityQueuesPanel.classList.toggle("hidden", !show);
 }
 
 function renderQueue(rows, forcedGroup = null) {
@@ -210,13 +363,13 @@ function renderQueue(rows, forcedGroup = null) {
   }
   elements.publicQueueList.innerHTML = visibleRows.map((row) => `
     <article class="vehicle-card">
-      <h4>${row.plate}</h4>
+      <h4>${escapeHtml(row.plate)}</h4>
       <div class="vehicle-meta">
         <span><strong>Turno:</strong> ${row.turnPosition || "-"}</span>
-        <span><strong>Cola:</strong> ${row.queueGroupLabel || "-"}</span>
-        <span><strong>Transportadora:</strong> ${row.carrier}</span>
-        <span><strong>Destinos:</strong> ${renderDestinationsText(row)}</span>
-        <span><strong>Calidad:</strong> ${translateQualityStatus(row.qualityStatus)}</span>
+        <span><strong>Cola:</strong> ${escapeHtml(row.queueGroupLabel || "-")}</span>
+        <span><strong>Transportadora:</strong> ${escapeHtml(row.carrier)}</span>
+        <span><strong>Destinos:</strong> ${escapeHtml(renderDestinationsText(row))}</span>
+        <span><strong>Calidad:</strong> ${escapeHtml(translateQualityStatus(row.qualityStatus))}</span>
       </div>
     </article>
   `).join("");
@@ -229,13 +382,13 @@ function renderCityQueues(cityQueues, forcedGroup = null) {
     if (!vehicles.length) {
       return `
         <section class="panel soft">
-          <div class="panel-heading"><div><h3>${group.city}</h3><p>Sin vehiculos visibles para esta ciudad.</p></div></div>
+          <div class="panel-heading"><div><h3>${escapeHtml(group.city)}</h3><p>Sin vehiculos visibles para esta ciudad.</p></div></div>
         </section>
       `;
     }
     return `
       <section class="panel soft">
-        <div class="panel-heading"><div><h3>${group.city}</h3><p>Turnos visibles para esta ciudad.</p></div></div>
+        <div class="panel-heading"><div><h3>${escapeHtml(group.city)}</h3><p>Turnos visibles para esta ciudad.</p></div></div>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Turno</th><th>Placa</th><th>Transportadora</th><th>Cola</th></tr></thead>
@@ -243,9 +396,9 @@ function renderCityQueues(cityQueues, forcedGroup = null) {
               ${vehicles.map((row) => `
                 <tr>
                   <td>${row.turnPosition ? `<span class="turn">${row.turnPosition}</span>` : "-"}</td>
-                  <td>${row.plate}</td>
-                  <td>${row.carrier}</td>
-                  <td>${row.queueGroupLabel || "-"}</td>
+                  <td>${escapeHtml(row.plate)}</td>
+                  <td>${escapeHtml(row.carrier)}</td>
+                  <td>${escapeHtml(row.queueGroupLabel || "-")}</td>
                 </tr>
               `).join("")}
             </tbody>
@@ -298,12 +451,11 @@ function resizeSignatureCanvas() {
   signatureContext.lineJoin = "round";
   signatureContext.lineWidth = 2.4;
   signatureContext.strokeStyle = "#1769e0";
-  if (!state.signatureHasDrawn) {
-    clearSignatureCanvas();
-  }
+  if (!state.signatureHasDrawn) clearSignatureCanvas();
 }
 
 function startSignature(event) {
+  if (!state.gpsAllowed) return;
   drawingSignature = true;
   const { x, y } = getCanvasPoint(event);
   signatureContext.beginPath();
@@ -312,7 +464,7 @@ function startSignature(event) {
 }
 
 function moveSignature(event) {
-  if (!drawingSignature) return;
+  if (!drawingSignature || !state.gpsAllowed) return;
   const { x, y } = getCanvasPoint(event);
   signatureContext.lineTo(x, y);
   signatureContext.stroke();
@@ -355,16 +507,58 @@ function resetRegistrationMedia() {
   state.signatureDataUrl = "";
   state.signatureHasDrawn = false;
   state.gps = null;
+  state.gpsAllowed = false;
+  state.geofenceMessage = "Debes validar nuevamente tu ubicacion para un nuevo registro.";
   elements.publicSelfieInput.value = "";
   elements.publicSelfiePreview.innerHTML = `<span class="muted-text">Aqui veras la selfie antes de enviar el registro.</span>`;
   clearSignatureCanvas();
   elements.signatureStatus.textContent = "Firma pendiente.";
-  setGpsStatus("GPS requerido", "Debes permitir ubicacion para validar que estas dentro de planta.");
+  setGpsStatus("GPS requerido", state.geofenceMessage);
+  updateRegistrationGate();
+}
+
+function updateRegistrationGate() {
+  let title = "GPS pendiente";
+  let text = state.geofenceMessage || "Debes validar tu ubicacion.";
+  let locked = true;
+
+  if (!state.config?.siteConfigured) {
+    title = "Geocerca sin configurar";
+    text = "Logistica debe configurar la ubicacion de la planta antes de usar este registro por QR.";
+  } else if (!state.gps) {
+    title = "GPS pendiente";
+    text = state.geofenceMessage || "Debes validar tu ubicacion para activar el formulario.";
+  } else if (!state.gpsAllowed) {
+    title = "Fuera de planta";
+    text = state.geofenceMessage || "Estas fuera de la geocerca autorizada.";
+  } else {
+    locked = false;
+    title = "Ubicacion validada";
+    text = state.geofenceMessage || "Ya puedes diligenciar el formulario.";
+  }
+
+  setGpsStatus(title, text);
+  elements.geofenceAlert.classList.toggle("hidden", !locked);
+  elements.geofenceAlertText.textContent = text;
+  setFormDisabled(locked);
   updateSubmitState();
+}
+
+function setFormDisabled(disabled) {
+  elements.publicVehicleForm.querySelectorAll("input, select, button, textarea").forEach((control) => {
+    if (control === elements.publicSubmitButton) return;
+    control.disabled = disabled;
+  });
+  elements.publicDestinationToggle.disabled = disabled;
+  elements.publicDestinationMenu.querySelectorAll("input").forEach((input) => {
+    input.disabled = disabled;
+  });
+  if (disabled) closeDestinationMenu();
 }
 
 function updateSubmitState() {
   const formReady =
+    !elements.publicCarrierId.disabled &&
     Boolean(document.querySelector("#publicPlate").value.trim()) &&
     Boolean(elements.publicCarrierId.value) &&
     Boolean(document.querySelector("#publicDriverName").value.trim()) &&
@@ -372,12 +566,8 @@ function updateSubmitState() {
     Boolean(document.querySelector("#publicDriverPhone").value.trim()) &&
     Boolean(document.querySelector("#publicEmptyWeightKg").value.trim()) &&
     selectedDestinationIds().length > 0;
-  const canSubmit = formReady && Boolean(state.gps) && Boolean(state.driverSelfieDataUrl) && Boolean(state.signatureDataUrl);
+  const canSubmit = formReady && Boolean(state.gpsAllowed) && Boolean(state.driverSelfieDataUrl) && Boolean(state.signatureDataUrl);
   elements.publicSubmitButton.disabled = !canSubmit;
-}
-
-function selectedDestinationIds() {
-  return Array.from(elements.publicDestinationId.selectedOptions).map((option) => option.value).filter(Boolean);
 }
 
 function selectedQueueGroup() {
@@ -425,24 +615,22 @@ function setGpsStatus(title, text) {
   elements.gpsStatusText.textContent = text;
 }
 
-function withCenterQuery(path) {
-  if (!state.centerId) return path;
-  return `${path}${path.includes("?") ? "&" : "?"}center=${encodeURIComponent(state.centerId)}`;
+function withCenterQuery(path, centerId = state.centerId) {
+  if (!centerId) return path;
+  return `${path}${path.includes("?") ? "&" : "?"}center=${encodeURIComponent(centerId)}`;
 }
 
 function detectCenterFromGps() {
-  if (!state.gps || !Array.isArray(state.config?.centers)) return;
+  if (!state.gps || !Array.isArray(state.config?.centers)) return null;
   const matches = state.config.centers
+    .filter((center) => center.geofenceEnabled !== false)
     .map((center) => ({
       center,
       distance: haversineDistance(state.gps.lat, state.gps.lng, Number(center.siteLat), Number(center.siteLng)),
     }))
     .filter((item) => Number.isFinite(item.distance) && item.distance <= Number(item.center.siteRadiusM || 180))
     .sort((left, right) => left.distance - right.distance);
-  const matchedCenter = matches[0];
-  if (!matchedCenter || matchedCenter.center.id === state.centerId) return;
-  state.centerId = matchedCenter.center.id;
-  loadConfig();
+  return matches[0]?.center || null;
 }
 
 function haversineDistance(lat1, lng1, lat2, lng2) {
@@ -465,6 +653,12 @@ async function request(path, options = {}) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || "Error del servidor.");
   return data;
+}
+
+function escapeHtml(value) {
+  const div = document.createElement("div");
+  div.textContent = value ?? "";
+  return div.innerHTML;
 }
 
 function showToast(message) {

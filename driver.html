@@ -2,9 +2,9 @@
 <html lang="es">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Registro QR de conductores</title>
-    <link rel="stylesheet" href="styles.css?v=20260419e" />
+    <link rel="stylesheet" href="styles.css?v=20260420a" />
   </head>
   <body class="public-body">
     <div class="public-shell">
@@ -14,41 +14,55 @@
         <p class="hero-text">
           Completa tu enturnamiento solo dentro de la sede autorizada. Debes validar GPS, tomar selfie y firmar en pantalla.
         </p>
-        <img class="public-logo" src="assets/logo-logistica.png" alt="Logo Diana Logística" />
+        <img class="public-logo" src="assets/logo-logistica.png" alt="Logo Diana Logistica" />
       </header>
 
       <section class="gps-banner">
         <strong id="gpsStatusTitle">GPS pendiente</strong>
-        <p id="gpsStatusText" class="muted-text">Pulsa el botón para validar que estás dentro de la planta.</p>
-        <button id="requestGpsButton" class="primary" type="button">Validar mi ubicación</button>
+        <p id="gpsStatusText" class="muted-text">Pulsa el boton para validar que estas dentro de la planta.</p>
+        <button id="requestGpsButton" class="primary" type="button">Validar mi ubicacion</button>
+      </section>
+
+      <section id="geofenceAlert" class="panel soft public-alert hidden">
+        <h3>Registro bloqueado temporalmente</h3>
+        <p id="geofenceAlertText" class="muted-text">
+          Debes activar tu GPS y estar dentro de una de las plantas autorizadas para completar el registro.
+        </p>
       </section>
 
       <section class="panel">
         <div class="panel-heading">
           <div>
             <h3>Formulario de enturnamiento</h3>
-            <p>Si escoges varias ciudades, el vehículo aparecerá en cada lista de ciudad sin duplicar el registro principal.</p>
+            <p>Si escoges varias ciudades, el vehiculo aparecera en cada lista de ciudad sin duplicar el registro principal.</p>
           </div>
         </div>
         <form id="publicVehicleForm" class="form-grid">
           <label>Placa<input id="publicPlate" required /></label>
           <label>Transportadora<select id="publicCarrierId" required></select></label>
           <label>Conductor<input id="publicDriverName" required /></label>
-          <label>Cédula<input id="publicDriverId" required /></label>
+          <label>Cedula<input id="publicDriverId" required /></label>
           <label>Celular<input id="publicDriverPhone" required /></label>
-          <label>P. vacío (kg)<input id="publicEmptyWeightKg" required /></label>
+          <label>P. vacio (kg)<input id="publicEmptyWeightKg" required /></label>
           <label class="wide">
-            Ciudades / destinos de interés
-            <select id="publicDestinationId" required></select>
+            Ciudades / destinos de interes
+            <div id="publicDestinationPicker" class="multi-select-dropdown">
+              <button id="publicDestinationToggle" class="multi-select-toggle" type="button" aria-expanded="false">
+                Selecciona uno o mas destinos
+              </button>
+              <div id="publicDestinationMenu" class="multi-select-menu hidden"></div>
+            </div>
+            <p id="publicDestinationHint" class="muted-text">Selecciona al menos un destino.</p>
+            <div id="publicDestinationTurns" class="selected-city-turns"></div>
           </label>
 
           <div class="capture-grid wide">
             <section class="capture-card">
               <h4>Selfie obligatoria</h4>
-              <p>Tómate una foto clara del conductor con cámara frontal.</p>
+              <p>Tomate una foto clara del conductor con camara frontal.</p>
               <input id="publicSelfieInput" type="file" accept="image/*" capture="user" required />
               <div id="publicSelfiePreview" class="selfie-preview">
-                <span class="muted-text">Aquí verás la selfie antes de enviar el registro.</span>
+                <span class="muted-text">Aqui veras la selfie antes de enviar el registro.</span>
               </div>
             </section>
 
@@ -75,29 +89,29 @@
         <div class="panel-heading">
           <div>
             <h3>Mi turno</h3>
-            <p>Cuando te registres, aquí verás tu posición actual y la cola que te corresponde.</p>
+            <p>Cuando te registres, aqui veras tu posicion actual, la revision de calidad y tus observaciones.</p>
           </div>
         </div>
         <div id="publicTrackingCard" class="ticket-card">
-          <div class="empty">Aún no hay un turno activo en este navegador.</div>
+          <div class="empty">Aun no hay un turno activo en este navegador.</div>
         </div>
       </section>
 
-      <section class="panel">
+      <section id="publicQueuePanel" class="panel">
         <div class="panel-heading">
           <div>
             <h3>Fila visible para conductores</h3>
-            <p>La lista se adapta a la transportadora seleccionada y se actualiza automáticamente.</p>
+            <p>La lista se adapta a la transportadora seleccionada y se actualiza automaticamente.</p>
           </div>
         </div>
         <div id="publicQueueList" class="stack-list"></div>
       </section>
 
-      <section class="panel">
+      <section id="publicCityQueuesPanel" class="panel">
         <div class="panel-heading">
           <div>
             <h3>Turnos por ciudad</h3>
-            <p>Consulta cómo avanza la fila en cada ciudad de destino.</p>
+            <p>Consulta como avanza la fila en cada ciudad de destino.</p>
           </div>
         </div>
         <div id="publicCityQueues"></div>
@@ -105,6 +119,6 @@
     </div>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="driver.js?v=20260419c" defer></script>
+    <script src="driver.js?v=20260420a" defer></script>
   </body>
 </html>

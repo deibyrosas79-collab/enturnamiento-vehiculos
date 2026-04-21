@@ -717,6 +717,8 @@ th {
   border-radius: 999px;
   font-weight: 700;
   font-size: .88rem;
+  font: inherit;
+  cursor: pointer;
   text-decoration: none;
   transition: all var(--transition);
 }
@@ -1132,4 +1134,218 @@ th {
 .public-shell * {
   max-width: 100%;
   box-sizing: border-box;
+}
+
+/* ===== Driver QR stability fixes ===== */
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.public-alert {
+  border-color: rgba(239, 68, 68, 0.18);
+  background: linear-gradient(180deg, rgba(255, 245, 245, 0.96), rgba(255, 255, 255, 0.94));
+}
+
+.multi-select-dropdown {
+  position: relative;
+  display: grid;
+  gap: 8px;
+}
+
+.multi-select-toggle {
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1.5px solid rgba(191, 209, 233, 0.95);
+  background: linear-gradient(180deg, rgba(246, 250, 255, 0.98), rgba(255, 255, 255, 0.96));
+  text-align: left;
+  color: var(--ink);
+  font: inherit;
+}
+
+.multi-select-toggle:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.multi-select-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 25;
+  max-height: 250px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 18px;
+  border: 1.5px solid rgba(191, 209, 233, 0.95);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.18);
+}
+
+.multi-select-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+}
+
+.multi-select-option:hover {
+  background: rgba(27, 88, 232, 0.06);
+}
+
+.selected-city-turns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.selected-city-turns.compact {
+  margin-top: 12px;
+}
+
+.city-turn-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(27, 88, 232, 0.08);
+  color: var(--primary);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.tracking-grid {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 16px;
+}
+
+.tracking-note {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(15, 168, 114, 0.08);
+  border: 1px solid rgba(15, 168, 114, 0.14);
+}
+
+.driver-media-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.capture-card.compact {
+  padding: 14px;
+}
+
+.tracking-media-preview {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 16px;
+  border: 1px solid rgba(191, 209, 233, 0.85);
+  background: #fff;
+}
+
+.media-preview-modal {
+  max-width: 1100px;
+}
+
+.media-preview-body {
+  max-height: 72vh;
+  overflow: auto;
+}
+
+.media-preview-single img,
+.media-preview-figure img {
+  width: 100%;
+  height: auto;
+  border-radius: 18px;
+  border: 1px solid rgba(191, 209, 233, 0.85);
+  background: #fff;
+}
+
+.media-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.media-preview-figure {
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.media-preview-figure figcaption {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+@media (max-width: 768px) {
+  .public-body {
+    width: 100%;
+    overflow-x: hidden;
+  }
+
+  .public-shell {
+    width: calc(100vw - 12px);
+    max-width: calc(100vw - 12px);
+    padding: 8px 0 28px;
+    gap: 12px;
+  }
+
+  .public-hero,
+  .public-shell > .panel,
+  .gps-banner,
+  .public-alert {
+    width: 100%;
+    margin: 0;
+    border-radius: 18px;
+  }
+
+  .public-hero {
+    padding: 16px 14px;
+    gap: 8px;
+  }
+
+  .public-hero h1 {
+    font-size: clamp(1.35rem, 7vw, 1.85rem);
+    line-height: 1.1;
+    text-align: center;
+  }
+
+  .public-hero .hero-text {
+    max-width: 100%;
+    font-size: 0.92rem;
+    line-height: 1.45;
+    text-align: center;
+  }
+
+  .tracking-grid,
+  .capture-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .multi-select-menu {
+    position: static;
+    max-height: 220px;
+    box-shadow: none;
+  }
+
+  .public-body table,
+  .public-body .table-wrap {
+    width: 100%;
+  }
+
+  .public-body th,
+  .public-body td {
+    font-size: 0.8rem;
+    padding: 9px 8px;
+  }
 }

@@ -9,13 +9,13 @@ import retrofit2.http.POST
 import retrofit2.http.Path
 
 interface ApiService {
-    @POST("auth/login")
+    @POST("mobile/auth/login")
     suspend fun login(@Body request: LoginRequest): AppStateDto
 
-    @GET("app-state")
+    @GET("mobile/quality-state")
     suspend fun getAppState(): AppStateDto
 
-    @POST("quality/{vehicleId}/inspect")
+    @POST("mobile/quality/{vehicleId}/inspect")
     suspend fun inspectVehicle(
         @Path("vehicleId") vehicleId: String,
         @Body request: InspectionRequest,

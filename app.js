@@ -9,6 +9,7 @@ const CHECKLIST_ITEMS = [
   { key: "damage", label: "Libre de orificios y averías", evidence: true },
   { key: "humidity", label: "Libre de humedad", evidence: true },
   { key: "infestation", label: "Libre de infestación", evidence: true },
+  { key: "woodenStakesPestFree", label: "Estacas de madera del vehículo libres de plagas (paredes y pisos)", evidence: true },
   { key: "bulkWallsFloor", label: "Granel en paredes y piso limpio y en buen estado", evidence: true },
   { key: "containerHoles", label: "Trompos limpios y protegidos", evidence: true },
   { key: "fumigationIn", label: "Fumigación ingreso", evidence: true },
@@ -23,6 +24,7 @@ const HISTORY_CHECKLIST_COLUMNS = [
   { key: "damage", title: "Libre de orificios y averías" },
   { key: "humidity", title: "Libre de humedad" },
   { key: "infestation", title: "Libre de infestación" },
+  { key: "woodenStakesPestFree", title: "Estacas de madera libres de plagas" },
   { key: "bulkWallsFloor", title: "Granel en paredes y piso" },
   { key: "containerHoles", title: "Trompos limpios y protegidos" },
   { key: "fumigationIn", title: "Fumigación ingreso" },
@@ -43,6 +45,7 @@ const state = {
   editingDestinationId: null,
   editingCarrierId: null,
   editingUserId: null,
+  mediaPreviewMap: {},
 };
 
 const elements = {
@@ -142,6 +145,10 @@ const elements = {
   siteLng: document.querySelector("#siteLng"),
   siteRadiusM: document.querySelector("#siteRadiusM"),
   geofenceEnabled: document.querySelector("#geofenceEnabled"),
+  mediaPreviewModal: document.querySelector("#mediaPreviewModal"),
+  mediaPreviewTitle: document.querySelector("#mediaPreviewTitle"),
+  mediaPreviewBody: document.querySelector("#mediaPreviewBody"),
+  closeMediaPreviewButton: document.querySelector("#closeMediaPreviewButton"),
   toast: document.querySelector("#toast"),
 };
 
@@ -206,6 +213,11 @@ function bindEvents() {
   elements.vehicleEditModal?.addEventListener("click", (event) => {
     if (event.target === elements.vehicleEditModal) closeVehicleEditModal();
   });
+  elements.mediaPreviewModal?.addEventListener("click", (event) => {
+    if (event.target === elements.mediaPreviewModal) closeMediaPreviewModal();
+  });
+  elements.closeMediaPreviewButton?.addEventListener("click", closeMediaPreviewModal);
+  document.addEventListener("click", handleMediaPreviewClick);
 }
 
 async function loadSession() {
@@ -279,6 +291,7 @@ function switchQueueTab(tabName) {
 
 function renderApp() {
   if (!state.appState) return;
+  state.mediaPreviewMap = {};
   const {
     user,
     queued,
@@ -1382,12 +1395,90 @@ function renderVehicleSupports(item) {
   if (item.driverSignatureUrl) {
     links.push(renderSupportLink(item.driverSignatureUrl, "Ver firma"));
   }
+  const evidenceCount = getChecklistEvidenceCount(item.latestInspection?.checklist);
+  if (evidenceCount > 0) {
+    links.push(`<button class="support-link" type="button" data-evidence-preview-id="${item.id}">Ver evidencias (${evidenceCount})</button>`);
+  }
   return links.length ? `<div class="support-links">${links.join("")}</div>` : `<span class="muted-text">Sin soportes visuales.</span>`;
 }
 
 function renderSupportLink(url, label) {
   if (!url) return `<span class="muted-text">Sin archivo</span>`;
-  return `<a class="support-link" href="${encodeURI(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
+  const mediaKey = registerPreviewMedia(url, label);
+  return `<button class="support-link" type="button" data-media-preview-key="${mediaKey}">${escapeHtml(label)}</button>`;
+}
+
+function getChecklistEvidenceCount(checklist) {
+  if (!checklist || typeof checklist !== "object") return 0;
+  return Object.values(checklist).reduce((total, item) => total + ((item?.evidences || []).filter(Boolean).length), 0);
+}
+
+function handleMediaPreviewClick(event) {
+  const mediaButton = event.target.closest("[data-media-preview-key]");
+  if (mediaButton) {
+    const mediaEntry = state.mediaPreviewMap[mediaButton.dataset.mediaPreviewKey];
+    openMediaPreview(mediaEntry?.url || "", mediaEntry?.label || "Vista previa");
+    return;
+  }
+  const evidenceButton = event.target.closest("[data-evidence-preview-id]");
+  if (evidenceButton) {
+    const vehicle = findVehicleById(evidenceButton.dataset.evidencePreviewId);
+    openChecklistEvidencePreview(vehicle);
+  }
+}
+
+function openMediaPreview(url, label) {
+  if (!url) {
+    showToast("No hay archivo disponible para visualizar.");
+    return;
+  }
+  elements.mediaPreviewTitle.textContent = label || "Vista previa";
+  elements.mediaPreviewBody.innerHTML = `
+    <div class="media-preview-single">
+      <img src="${url}" alt="${escapeHtml(label || "Vista previa")}" />
+    </div>
+  `;
+  elements.mediaPreviewModal.classList.remove("hidden");
+}
+
+function openChecklistEvidencePreview(vehicle) {
+  const checklist = vehicle?.latestInspection?.checklist || {};
+  const evidences = [];
+  Object.values(checklist).forEach((item) => {
+    (item?.evidences || []).filter(Boolean).forEach((url, index) => {
+      evidences.push({
+        url,
+        label: `${item.label || "Evidencia"} ${index + 1}`,
+      });
+    });
+  });
+  if (!evidences.length) {
+    showToast("Ese vehículo no tiene evidencias fotográficas en el checklist.");
+    return;
+  }
+  elements.mediaPreviewTitle.textContent = `Evidencias checklist ${vehicle?.plate || ""}`.trim();
+  elements.mediaPreviewBody.innerHTML = `
+    <div class="media-preview-grid">
+      ${evidences.map((item) => `
+        <figure class="media-preview-figure">
+          <img src="${item.url}" alt="${escapeHtml(item.label)}" />
+          <figcaption>${escapeHtml(item.label)}</figcaption>
+        </figure>
+      `).join("")}
+    </div>
+  `;
+  elements.mediaPreviewModal.classList.remove("hidden");
+}
+
+function closeMediaPreviewModal() {
+  elements.mediaPreviewModal.classList.add("hidden");
+  elements.mediaPreviewBody.innerHTML = "";
+}
+
+function registerPreviewMedia(url, label) {
+  const key = `media-${Object.keys(state.mediaPreviewMap).length + 1}`;
+  state.mediaPreviewMap[key] = { url, label };
+  return key;
 }
 
 function renderDestinations(item) {
