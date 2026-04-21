@@ -1148,6 +1148,35 @@ body {
   background: linear-gradient(180deg, rgba(255, 245, 245, 0.96), rgba(255, 255, 255, 0.94));
 }
 
+.public-status-banner {
+  display: grid;
+  gap: 10px;
+}
+
+.public-status-banner h3,
+.public-status-banner p {
+  margin: 0;
+}
+
+.public-status-banner.success {
+  border-color: rgba(15, 168, 114, 0.18);
+  background: linear-gradient(180deg, rgba(236, 253, 245, 0.96), rgba(255, 255, 255, 0.94));
+}
+
+.public-status-banner.error {
+  border-color: rgba(239, 68, 68, 0.18);
+  background: linear-gradient(180deg, rgba(255, 245, 245, 0.96), rgba(255, 255, 255, 0.94));
+}
+
+.status-banner-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  color: var(--ink);
+  font-weight: 600;
+}
+
 .multi-select-dropdown {
   position: relative;
   display: grid;
@@ -1177,25 +1206,57 @@ body {
   left: 0;
   right: 0;
   z-index: 25;
-  max-height: 250px;
+  max-height: 280px;
   overflow: auto;
-  padding: 8px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
   border-radius: 18px;
   border: 1.5px solid rgba(191, 209, 233, 0.95);
-  background: rgba(255, 255, 255, 0.98);
+  background: rgba(255, 255, 255, 0.995);
   box-shadow: 0 18px 42px rgba(15, 23, 42, 0.18);
 }
 
 .multi-select-option {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 12px;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(191, 209, 233, 0.65);
+  background: linear-gradient(180deg, rgba(249, 252, 255, 0.98), rgba(255, 255, 255, 0.96));
+  cursor: pointer;
 }
 
 .multi-select-option:hover {
   background: rgba(27, 88, 232, 0.06);
+  border-color: rgba(27, 88, 232, 0.22);
+}
+
+.multi-select-option input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  accent-color: var(--primary);
+}
+
+.multi-select-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.multi-select-copy strong {
+  color: var(--ink);
+  font-size: 0.98rem;
+  line-height: 1.2;
+}
+
+.multi-select-copy small {
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.2;
 }
 
 .selected-city-turns {
@@ -1336,6 +1397,18 @@ body {
     position: static;
     max-height: 220px;
     box-shadow: none;
+  }
+
+  .multi-select-option {
+    padding: 11px 12px;
+  }
+
+  .multi-select-copy strong {
+    font-size: 0.94rem;
+  }
+
+  .multi-select-copy small {
+    font-size: 0.8rem;
   }
 
   .public-body table,

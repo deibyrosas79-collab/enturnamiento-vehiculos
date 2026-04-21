@@ -11,6 +11,7 @@ const state = {
   signatureDataUrl: "",
   signatureHasDrawn: false,
   destinationMenuOpen: false,
+  isSubmitting: false,
 };
 
 const elements = {
@@ -19,6 +20,10 @@ const elements = {
   gpsStatusText: document.querySelector("#gpsStatusText"),
   geofenceAlert: document.querySelector("#geofenceAlert"),
   geofenceAlertText: document.querySelector("#geofenceAlertText"),
+  publicStatusBanner: document.querySelector("#publicStatusBanner"),
+  publicStatusTitle: document.querySelector("#publicStatusTitle"),
+  publicStatusText: document.querySelector("#publicStatusText"),
+  publicStatusList: document.querySelector("#publicStatusList"),
   publicVehicleForm: document.querySelector("#publicVehicleForm"),
   publicCarrierId: document.querySelector("#publicCarrierId"),
   publicDestinationToggle: document.querySelector("#publicDestinationToggle"),
@@ -48,7 +53,14 @@ bootstrap();
 function bootstrap() {
   elements.requestGpsButton.addEventListener("click", requestGps);
   elements.publicVehicleForm.addEventListener("submit", submitPublicRegistration);
-  elements.publicVehicleForm.addEventListener("input", updateSubmitState);
+  elements.publicVehicleForm.addEventListener("input", () => {
+    hideStatusBanner();
+    updateSubmitState();
+  });
+  elements.publicVehicleForm.addEventListener("change", () => {
+    hideStatusBanner();
+    updateSubmitState();
+  });
   elements.publicCarrierId.addEventListener("change", () => {
     renderSelectedCityTurnsPreview();
     renderQueue(state.config?.liveQueue || []);
@@ -64,7 +76,7 @@ function bootstrap() {
     refreshTracking();
   }
   setInterval(refreshTracking, 20000);
-  setInterval(loadQueueOnly, 20000);
+  setInterval(loadQueueOnly, 30000);
   updateRegistrationGate();
 }
 
@@ -91,6 +103,9 @@ async function loadConfig(centerIdOverride = state.centerId) {
 }
 
 async function loadQueueOnly() {
+  if (state.trackingToken) {
+    return;
+  }
   try {
     const data = await request(withCenterQuery("/public/config", state.centerId));
     state.config = data;
@@ -130,7 +145,10 @@ function renderDestinationMenu(rows) {
   elements.publicDestinationMenu.innerHTML = rows.map((row) => `
     <label class="multi-select-option">
       <input type="checkbox" value="${escapeHtml(row.id)}" ${selected.has(row.id) ? "checked" : ""} />
-      <span>${escapeHtml(`${row.city} - ${row.zone}`)}</span>
+      <span class="multi-select-copy">
+        <strong>${escapeHtml(row.city)}</strong>
+        <small>${escapeHtml(row.zone)}</small>
+      </span>
     </label>
   `).join("");
   elements.publicDestinationMenu.querySelectorAll("input[type='checkbox']").forEach((checkbox) => {
@@ -156,11 +174,15 @@ function syncDestinationSummary() {
     .map((id) => state.config?.destinations?.find((item) => item.id === id))
     .filter(Boolean)
     .map((item) => `${item.city} - ${item.zone}`);
-  elements.publicDestinationToggle.textContent = labels.length
-    ? labels.join(", ")
-    : "Selecciona uno o mas destinos";
+  if (!labels.length) {
+    elements.publicDestinationToggle.textContent = "Selecciona uno o mas destinos";
+  } else if (labels.length === 1) {
+    elements.publicDestinationToggle.textContent = labels[0];
+  } else {
+    elements.publicDestinationToggle.textContent = `${labels.length} destinos seleccionados`;
+  }
   elements.publicDestinationHint.textContent = labels.length
-    ? `${labels.length} destino(s) seleccionado(s).`
+    ? `Seleccionados: ${labels.join(" | ")}`
     : "Selecciona al menos un destino.";
 }
 
@@ -248,23 +270,19 @@ function requestGps() {
 
 async function submitPublicRegistration(event) {
   event.preventDefault();
-  if (!state.gpsAllowed || !state.gps) {
-    showToast("Debes validar que estas dentro de una planta autorizada.");
+  const validationIssues = collectValidationIssues();
+  if (validationIssues.length) {
+    showStatusBanner(
+      "error",
+      "Faltan datos obligatorios",
+      "Antes de guardar, completa los siguientes campos del registro.",
+      validationIssues.map((issue) => issue.label),
+    );
+    focusValidationIssue(validationIssues[0]);
+    showToast(`Falta: ${validationIssues[0].label}`);
     return;
   }
   const destinationIds = selectedDestinationIds();
-  if (!destinationIds.length) {
-    showToast("Debes seleccionar al menos un destino.");
-    return;
-  }
-  if (!state.driverSelfieDataUrl) {
-    showToast("Debes tomarte una selfie antes de registrarte.");
-    return;
-  }
-  if (!state.signatureDataUrl) {
-    showToast("Debes firmar en pantalla antes de registrarte.");
-    return;
-  }
   const payload = {
     plate: document.querySelector("#publicPlate").value,
     carrierId: elements.publicCarrierId.value,
@@ -280,16 +298,25 @@ async function submitPublicRegistration(event) {
     driverSignatureDataUrl: state.signatureDataUrl,
   };
   try {
+    setSubmittingState(true);
+    hideStatusBanner();
     const data = await request(withCenterQuery("/public/register", state.centerId), { method: "POST", body: payload });
     state.trackingToken = data.vehicle.publicTrackingToken;
     localStorage.setItem("driver_tracking_token", state.trackingToken);
     elements.publicVehicleForm.reset();
     resetRegistrationMedia();
-    await refreshTracking();
-    await loadQueueOnly();
-    showToast("Registro completado.");
+    renderTracking(data);
+    showStatusBanner(
+      "success",
+      "Su informacion ha sido guardada correctamente",
+      "Tu vehiculo ya quedo registrado en turno. En la parte inferior puedes ver el estado de calidad, tus observaciones y el turno por ciudad.",
+    );
+    showToast("Su informacion ha sido guardada correctamente.");
   } catch (error) {
+    showStatusBanner("error", "No se pudo guardar la informacion", error.message);
     showToast(error.message);
+  } finally {
+    setSubmittingState(false);
   }
 }
 
@@ -419,6 +446,7 @@ async function handleSelfieChange(event) {
     return;
   }
   try {
+    elements.publicSelfiePreview.innerHTML = `<span class="muted-text">Preparando selfie para un envio mas rapido...</span>`;
     state.driverSelfieDataUrl = await fileToDataUrl(file);
     elements.publicSelfiePreview.innerHTML = `<img src="${state.driverSelfieDataUrl}" alt="Vista previa de selfie" />`;
     updateSubmitState();
@@ -566,7 +594,12 @@ function updateSubmitState() {
     Boolean(document.querySelector("#publicDriverPhone").value.trim()) &&
     Boolean(document.querySelector("#publicEmptyWeightKg").value.trim()) &&
     selectedDestinationIds().length > 0;
-  const canSubmit = formReady && Boolean(state.gpsAllowed) && Boolean(state.driverSelfieDataUrl) && Boolean(state.signatureDataUrl);
+  const canSubmit =
+    !state.isSubmitting &&
+    formReady &&
+    Boolean(state.gpsAllowed) &&
+    Boolean(state.driverSelfieDataUrl) &&
+    Boolean(state.signatureDataUrl);
   elements.publicSubmitButton.disabled = !canSubmit;
 }
 
@@ -601,13 +634,12 @@ function translateQualityStatus(status) {
   }[status] || status;
 }
 
-function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error("No se pudo leer la selfie seleccionada."));
-    reader.readAsDataURL(file);
-  });
+async function fileToDataUrl(file) {
+  try {
+    return await compressImageFile(file, 960, 0.72);
+  } catch {
+    return readFileAsDataUrl(file);
+  }
 }
 
 function setGpsStatus(title, text) {
@@ -666,4 +698,105 @@ function showToast(message) {
   elements.toast.textContent = message;
   elements.toast.classList.add("show");
   toastTimer = setTimeout(() => elements.toast.classList.remove("show"), 3200);
+}
+
+function collectValidationIssues() {
+  const issues = [];
+  const checks = [
+    { ok: Boolean(state.gpsAllowed && state.gps), label: "Validar ubicacion GPS dentro de planta", element: elements.requestGpsButton },
+    { ok: Boolean(document.querySelector("#publicPlate").value.trim()), label: "Placa", element: document.querySelector("#publicPlate") },
+    { ok: Boolean(elements.publicCarrierId.value), label: "Transportadora", element: elements.publicCarrierId },
+    { ok: Boolean(document.querySelector("#publicDriverName").value.trim()), label: "Nombre del conductor", element: document.querySelector("#publicDriverName") },
+    { ok: Boolean(document.querySelector("#publicDriverId").value.trim()), label: "Cedula", element: document.querySelector("#publicDriverId") },
+    { ok: Boolean(document.querySelector("#publicDriverPhone").value.trim()), label: "Numero de celular", element: document.querySelector("#publicDriverPhone") },
+    { ok: Boolean(document.querySelector("#publicEmptyWeightKg").value.trim()), label: "Peso vacio del vehiculo", element: document.querySelector("#publicEmptyWeightKg") },
+    { ok: selectedDestinationIds().length > 0, label: "Seleccionar al menos un destino", element: elements.publicDestinationToggle },
+    { ok: Boolean(state.driverSelfieDataUrl), label: "Selfie del conductor", element: elements.publicSelfieInput },
+    { ok: Boolean(state.signatureDataUrl), label: "Firma del conductor", element: elements.signatureCanvas },
+  ];
+  checks.forEach((check) => {
+    if (!check.ok) issues.push(check);
+  });
+  return issues;
+}
+
+function focusValidationIssue(issue) {
+  if (!issue?.element) return;
+  issue.element.scrollIntoView({ behavior: "smooth", block: "center" });
+  if (typeof issue.element.focus === "function") {
+    setTimeout(() => issue.element.focus(), 120);
+  }
+}
+
+function setSubmittingState(isSubmitting) {
+  state.isSubmitting = isSubmitting;
+  elements.publicSubmitButton.textContent = isSubmitting ? "Guardando informacion..." : "Registrarme en turno";
+  updateSubmitState();
+}
+
+function showStatusBanner(type, title, message, items = []) {
+  elements.publicStatusBanner.classList.remove("hidden", "success", "error");
+  elements.publicStatusBanner.classList.add(type === "success" ? "success" : "error");
+  elements.publicStatusTitle.textContent = title;
+  elements.publicStatusText.textContent = message;
+  if (items.length) {
+    elements.publicStatusList.innerHTML = items.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+    elements.publicStatusList.classList.remove("hidden");
+  } else {
+    elements.publicStatusList.innerHTML = "";
+    elements.publicStatusList.classList.add("hidden");
+  }
+  elements.publicStatusBanner.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function hideStatusBanner() {
+  elements.publicStatusBanner.classList.add("hidden");
+  elements.publicStatusList.classList.add("hidden");
+  elements.publicStatusList.innerHTML = "";
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("No se pudo leer la selfie seleccionada."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function compressImageFile(file, maxSize, quality) {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      try {
+        const width = image.naturalWidth || image.width;
+        const height = image.naturalHeight || image.height;
+        const scale = Math.min(1, maxSize / Math.max(width, height));
+        const targetWidth = Math.max(1, Math.round(width * scale));
+        const targetHeight = Math.max(1, Math.round(height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const context = canvas.getContext("2d", { alpha: false });
+        if (!context) {
+          throw new Error("No se pudo preparar la selfie.");
+        }
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, targetWidth, targetHeight);
+        context.drawImage(image, 0, 0, targetWidth, targetHeight);
+        const dataUrl = canvas.toDataURL("image/jpeg", quality);
+        URL.revokeObjectURL(objectUrl);
+        resolve(dataUrl);
+      } catch (error) {
+        URL.revokeObjectURL(objectUrl);
+        reject(error);
+      }
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("No se pudo procesar la selfie seleccionada."));
+    };
+    image.src = objectUrl;
+  });
 }

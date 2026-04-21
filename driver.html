@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Registro QR de conductores</title>
-    <link rel="stylesheet" href="styles.css?v=20260420a" />
+    <link rel="stylesheet" href="styles.css?v=20260420b" />
   </head>
   <body class="public-body">
     <div class="public-shell">
@@ -28,6 +28,12 @@
         <p id="geofenceAlertText" class="muted-text">
           Debes activar tu GPS y estar dentro de una de las plantas autorizadas para completar el registro.
         </p>
+      </section>
+
+      <section id="publicStatusBanner" class="panel soft public-status-banner hidden" aria-live="polite">
+        <h3 id="publicStatusTitle">Aviso del registro</h3>
+        <p id="publicStatusText" class="muted-text"></p>
+        <ul id="publicStatusList" class="status-banner-list hidden"></ul>
       </section>
 
       <section class="panel">
@@ -119,6 +125,6 @@
     </div>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="driver.js?v=20260420a" defer></script>
+    <script src="driver.js?v=20260420b" defer></script>
   </body>
 </html>
