@@ -73,6 +73,7 @@ function bootstrap() {
   elements.publicDestinationToggle.addEventListener("click", toggleDestinationMenu);
   document.addEventListener("click", handleDocumentClick);
   setupSignaturePad();
+  togglePublicQueuePanels(Boolean(state.trackingToken));
   loadConfig();
   if (state.trackingToken) {
     refreshTracking();
@@ -89,8 +90,10 @@ async function loadConfig(centerIdOverride = state.centerId) {
     state.centerId = data.centerId || centerIdOverride || state.centerId;
     populateSelect(elements.publicCarrierId, data.carriers, "Selecciona transportadora", (item) => `${item.code} - ${item.name}`);
     renderDestinationMenu(data.destinations || []);
-    renderQueue(data.liveQueue || []);
-    renderCityQueues(data.cityQueues || []);
+    if (state.trackingToken) {
+      renderQueue(data.liveQueue || []);
+      renderCityQueues(data.cityQueues || []);
+    }
     updateHero(data);
     if (!data.siteConfigured) {
       state.gpsAllowed = false;
@@ -108,15 +111,7 @@ async function loadQueueOnly() {
   if (state.trackingToken) {
     return;
   }
-  try {
-    const data = await request(withCenterQuery("/public/config", state.centerId));
-    state.config = data;
-    renderQueue(data.liveQueue || []);
-    renderCityQueues(data.cityQueues || []);
-    renderSelectedCityTurnsPreview();
-  } catch {
-    // noop
-  }
+  renderSelectedCityTurnsPreview();
 }
 
 function updateHero(data) {
@@ -324,7 +319,7 @@ async function submitPublicRegistration(event) {
 
 async function refreshTracking() {
   if (!state.trackingToken) {
-    togglePublicQueuePanels(true);
+    togglePublicQueuePanels(false);
     return;
   }
   try {
