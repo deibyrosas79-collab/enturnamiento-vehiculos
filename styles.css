@@ -1189,6 +1189,18 @@ body {
   z-index: 30;
 }
 
+#dashboardDestinationPicker {
+  z-index: auto;
+}
+
+#dashboardDestinationMenu {
+  position: static;
+  z-index: auto;
+  max-height: 260px;
+  margin-top: 2px;
+  box-shadow: none;
+}
+
 .multi-select-toggle {
   width: 100%;
   min-height: 48px;
