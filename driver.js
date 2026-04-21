@@ -12,6 +12,7 @@ const state = {
   signatureHasDrawn: false,
   destinationMenuOpen: false,
   isSubmitting: false,
+  activeQueueGroup: null,
 };
 
 const elements = {
@@ -62,6 +63,7 @@ function bootstrap() {
     updateSubmitState();
   });
   elements.publicCarrierId.addEventListener("change", () => {
+    state.activeQueueGroup = selectedQueueGroup();
     renderSelectedCityTurnsPreview();
     renderQueue(state.config?.liveQueue || []);
     renderCityQueues(state.config?.cityQueues || []);
@@ -335,6 +337,7 @@ async function refreshTracking() {
 
 function renderTracking(data) {
   const vehicle = data.vehicle;
+  state.activeQueueGroup = vehicle.queueGroup || state.activeQueueGroup;
   const cityTurns = Object.entries(vehicle.cityTurns || {});
   const observations = vehicle.latestInspection?.observationsText || vehicle.latestInspection?.findingsSummary || vehicle.rejectionReason || "";
   elements.publicTrackingCard.innerHTML = `
@@ -561,6 +564,7 @@ function resetRegistrationMedia() {
   state.signatureHasDrawn = false;
   state.gps = null;
   state.gpsAllowed = false;
+  state.activeQueueGroup = null;
   state.geofenceMessage = "Debes validar nuevamente tu ubicacion para un nuevo registro.";
   elements.publicSelfieInput.value = "";
   elements.publicSelfiePreview.innerHTML = `<span class="muted-text">Aqui veras la selfie antes de enviar el registro.</span>`;
@@ -630,7 +634,7 @@ function updateSubmitState() {
 
 function selectedQueueGroup() {
   const carrier = state.config?.carriers?.find((item) => item.id === elements.publicCarrierId.value);
-  if (!carrier) return null;
+  if (!carrier) return state.activeQueueGroup || null;
   return carrier.code === "4000801" ? "DIANA_AGRICOLA" : "GENERAL";
 }
 
