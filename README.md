@@ -49,6 +49,7 @@ El proyecto ya incluye:
 - [.env.example](/C:/Users/deiby/Downloads/enturnamiento-vehiculos/.env.example)
 - [GITHUB-PUBLISH.md](/C:/Users/deiby/Downloads/enturnamiento-vehiculos/GITHUB-PUBLISH.md)
 - [DEPLOY-RENDER.md](/C:/Users/deiby/Downloads/enturnamiento-vehiculos/DEPLOY-RENDER.md)
+- [DEPLOY-AZURE.md](/C:/Users/deiby/Downloads/enturnamiento-vehiculos/DEPLOY-AZURE.md)
 
 La base de datos y las evidencias quedan preparadas para persistir en disco en Render.
 
@@ -67,3 +68,10 @@ Guia de arquitectura:
 
 - [ARQUITECTURA-MOVIL.md](/C:/Users/deiby/Downloads/enturnamiento-vehiculos/ARQUITECTURA-MOVIL.md)
 - [android-quality-app/README.md](/C:/Users/deiby/Downloads/enturnamiento-vehiculos/android-quality-app/README.md)
+
+## Migracion paralela a Azure
+
+El proyecto ya incluye base inicial para migrar a Azure manteniendo Render activo mientras se valida:
+
+- [DEPLOY-AZURE.md](/C:/Users/deiby/Downloads/enturnamiento-vehiculos/DEPLOY-AZURE.md)
+- [.github/workflows/azure-webapp.yml](/C:/Users/deiby/Downloads/enturnamiento-vehiculos/.github/workflows/azure-webapp.yml)
