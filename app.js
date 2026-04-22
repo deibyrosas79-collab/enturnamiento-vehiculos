@@ -224,6 +224,7 @@ function bindEvents() {
   elements.closeMediaPreviewButton?.addEventListener("click", closeMediaPreviewModal);
   document.addEventListener("click", handleMediaPreviewClick);
   document.addEventListener("click", handleDashboardDestinationDocumentClick);
+  document.addEventListener("input", handleTableFilterInput);
 }
 
 async function loadSession() {
@@ -1245,7 +1246,12 @@ function renderTable(columns, rows, emptyText) {
   return `
     <div class="table-wrap">
       <table>
-        <thead><tr>${columns.map(([title]) => `<th>${title}</th>`).join("")}</tr></thead>
+        <thead>
+          <tr>${columns.map(([title]) => `<th>${title}</th>`).join("")}</tr>
+          <tr class="table-filter-row">
+            ${columns.map(([title], index) => renderTableFilterCell(title, index)).join("")}
+          </tr>
+        </thead>
         <tbody>
           ${rows.map((row, index) => `
             <tr>
@@ -1256,6 +1262,54 @@ function renderTable(columns, rows, emptyText) {
       </table>
     </div>
   `;
+}
+
+function renderTableFilterCell(title, index) {
+  if (!shouldEnableColumnFilter(title)) {
+    return `<th class="table-filter-cell disabled"></th>`;
+  }
+  return `
+    <th class="table-filter-cell">
+      <input
+        class="table-filter-input"
+        type="search"
+        placeholder="Filtrar..."
+        data-table-filter="${index}"
+      />
+    </th>
+  `;
+}
+
+function shouldEnableColumnFilter(title) {
+  const normalized = String(title || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  return !["accion", "acciones", "soportes", "#"].includes(normalized);
+}
+
+function handleTableFilterInput(event) {
+  const input = event.target.closest("[data-table-filter]");
+  if (!input) return;
+  const tableWrap = input.closest(".table-wrap");
+  if (!tableWrap) return;
+  applyTableFilters(tableWrap);
+}
+
+function applyTableFilters(tableWrap) {
+  const inputs = Array.from(tableWrap.querySelectorAll("[data-table-filter]"));
+  const rows = Array.from(tableWrap.querySelectorAll("tbody tr"));
+  rows.forEach((row) => {
+    const visible = inputs.every((input) => {
+      const query = String(input.value || "").trim().toLowerCase();
+      if (!query) return true;
+      const columnIndex = Number(input.dataset.tableFilter);
+      const cell = row.cells[columnIndex];
+      const text = String(cell?.textContent || "").trim().toLowerCase();
+      return text.includes(query);
+    });
+    row.classList.toggle("hidden", !visible);
+  });
 }
 
 function filterVehicles(rows) {

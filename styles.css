@@ -544,6 +544,44 @@ th {
   border-bottom: 2px solid rgba(196, 210, 228, 0.7);
 }
 
+.table-filter-row th {
+  position: sticky;
+  top: 46px;
+  z-index: 1;
+  padding: 8px 10px 10px;
+  background: linear-gradient(180deg, #eef5ff, #e7f0fc);
+  border-bottom: 1px solid rgba(196, 210, 228, 0.6);
+}
+
+.table-filter-cell.disabled {
+  background: linear-gradient(180deg, #eef5ff, #e7f0fc);
+}
+
+.table-filter-input {
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  border: 1.2px solid rgba(191, 209, 233, 0.95);
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.table-filter-input::placeholder {
+  color: #6b84aa;
+}
+
+.table-filter-input:focus {
+  outline: none;
+  border-color: rgba(27, 88, 232, 0.35);
+  box-shadow: 0 0 0 3px rgba(27, 88, 232, 0.08);
+}
+
 /* ─── TURN BADGE ──────────────────────────────────────── */
 .turn {
   display: inline-grid;
