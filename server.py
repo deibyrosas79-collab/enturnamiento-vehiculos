@@ -16,6 +16,7 @@ import uuid
 
 import sqlite3
 import threading
+import time
 import urllib.request
 
 from datetime import datetime, timedelta, timezone
@@ -2789,6 +2790,19 @@ def save_quality_inspection(vehicle_id: str, user: sqlite3.Row, payload: Dict[st
 class Handler(BaseHTTPRequestHandler):
     server_version = "EnturnamientoVehiculos/2.0"
 
+    def do_HEAD(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path == "/healthz":
+            self.send_response(200)
+            self.add_common_headers("application/json; charset=utf-8")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.add_common_headers("text/plain; charset=utf-8")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
@@ -3202,12 +3216,31 @@ def first_query_value(query: Dict[str, List[str]], key: str) -> Optional[str]:
     values = query.get(key) or []
     return clean_text(values[0]) if values else None
 
+class ResilientServer(ThreadingHTTPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
+def initialize_with_retry(max_attempts: int = 3, delay_seconds: int = 3) -> str:
+    last_error: Optional[Exception] = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            init_db()
+            with get_connection() as db:
+                return "PostgreSQL" if is_postgres_connection(db) else "SQLite contingencia"
+        except Exception as error:
+            last_error = error
+            print(f"Intento de arranque {attempt}/{max_attempts} fallo: {error}")
+            if attempt < max_attempts:
+                time.sleep(delay_seconds)
+    raise last_error or RuntimeError("No se pudo inicializar la aplicacion.")
+
 
 def main() -> None:
-    init_db()
-    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    db_mode = initialize_with_retry()
+    server = ResilientServer((HOST, PORT), Handler)
     print(f"Aplicacion lista en http://localhost:{PORT}")
-    print(f"Base de datos PostgreSQL conectada.")
+    print(f"Base de datos activa: {db_mode}.")
     print("UI: Inter font, pill tabs, lift cards, spring modal — v2.1")
     server.serve_forever()
 
