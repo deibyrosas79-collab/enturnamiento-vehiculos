@@ -55,21 +55,23 @@ private data class ChecklistDefinition(
     val key: String,
     val label: String,
     val requiresEvidence: Boolean,
+    val options: List<Pair<String, String>>,
+    val requiresPoison: Boolean = false,
 )
 
 private val inspectionChecklist = listOf(
-    ChecklistDefinition("foodLegend", "Leyenda visible Transporte de alimentos", true),
-    ChecklistDefinition("cleanliness", "Libre de suciedad", true),
-    ChecklistDefinition("strangeSmells", "Libre de olores extranos", false),
-    ChecklistDefinition("stains", "Libre de manchas", true),
-    ChecklistDefinition("damage", "Libre de orificios y averias", true),
-    ChecklistDefinition("humidity", "Libre de humedad", true),
-    ChecklistDefinition("infestation", "Libre de infestacion", true),
-    ChecklistDefinition("woodenStakesPestFree", "Estacas de madera del vehiculo libres de plagas (paredes y pisos)", true),
-    ChecklistDefinition("bulkWallsFloor", "Paredes y piso limpios y en buen estado", true),
-    ChecklistDefinition("containerHoles", "Trompos limpios y con proteccion", true),
-    ChecklistDefinition("fumigationIn", "Fumigacion ingreso", true),
-    ChecklistDefinition("fumigationOut", "Fumigacion salida", true),
+    ChecklistDefinition("foodLegend", "Cuenta con leyenda visible \"Transporte de alimentos\"", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
+    ChecklistDefinition("cleanliness", "Libre de suciedad", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
+    ChecklistDefinition("strangeSmells", "Libre de olores extraños", false, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
+    ChecklistDefinition("stains", "Libre de manchas", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
+    ChecklistDefinition("damage", "Libre de orificios y averías", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
+    ChecklistDefinition("humidity", "Libre de humedad", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
+    ChecklistDefinition("infestation", "Libre de infestación (plagas, roedores y/o contaminación biológica)", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
+    ChecklistDefinition("bulkWallsFloor", "Granel en paredes y piso limpio y en buen estado", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
+    ChecklistDefinition("containerHoles", "Trompos (agujeros de ensamble del contenedor) limpios y con la debida protección de parche", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
+    ChecklistDefinition("woodenStakesPestFree", "Estacas de madera del vehículo libres de plagas (paredes y pisos)", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
+    ChecklistDefinition("fumigationIn", "Fumigación ingreso", true, listOf("SI" to "Sí", "NO" to "No"), requiresPoison = true),
+    ChecklistDefinition("fumigationOut", "Fumigación salida", true, listOf("SI" to "Sí", "NO" to "No"), requiresPoison = true),
 )
 
 private val suitabilityOptions = listOf(
@@ -103,6 +105,16 @@ fun InspectionScreen(
                 put(
                     definition.key,
                     inspection?.checklist?.get(definition.key)?.status.orEmpty(),
+                )
+            }
+        }
+    }
+    val poisonMap = remember(vehicle?.id) {
+        mutableStateMapOf<String, String>().apply {
+            inspectionChecklist.forEach { definition ->
+                put(
+                    definition.key,
+                    inspection?.checklist?.get(definition.key)?.poison.orEmpty(),
                 )
             }
         }
@@ -236,10 +248,15 @@ fun InspectionScreen(
                 ChecklistCard(
                     definition = definition,
                     status = statusMap[definition.key].orEmpty(),
+                    poison = poisonMap[definition.key].orEmpty(),
                     existingEvidenceCount = existingEvidenceCount,
                     selectedEvidenceCount = evidenceUris[definition.key]?.size ?: 0,
                     onStatusChange = {
                         statusMap[definition.key] = it
+                        localValidationError = null
+                    },
+                    onPoisonChange = {
+                        poisonMap[definition.key] = it
                         localValidationError = null
                     },
                     onPickEvidence = {
@@ -336,7 +353,16 @@ fun InspectionScreen(
                             statusMap[definition.key].isNullOrBlank()
                         }
                         if (missingDefinition != null) {
-                            localValidationError = "Debes marcar Cumple o No cumple en: ${missingDefinition.label}."
+                            localValidationError = "Debes seleccionar el resultado en: ${missingDefinition.label}."
+                            return@Button
+                        }
+                        val missingPoisonDefinition = inspectionChecklist.firstOrNull { definition ->
+                            definition.requiresPoison &&
+                                statusMap[definition.key] == "SI" &&
+                                poisonMap[definition.key].isNullOrBlank()
+                        }
+                        if (missingPoisonDefinition != null) {
+                            localValidationError = "Debes escribir el veneno utilizado en: ${missingPoisonDefinition.label}."
                             return@Button
                         }
                         localValidationError = null
@@ -347,6 +373,7 @@ fun InspectionScreen(
                             definition.key to ChecklistSubmissionItem(
                                 label = definition.label,
                                 status = statusMap[definition.key].orEmpty(),
+                                poison = poisonMap[definition.key].orEmpty().ifBlank { null },
                                 evidences = evidences,
                             )
                         }
@@ -376,9 +403,11 @@ fun InspectionScreen(
 private fun ChecklistCard(
     definition: ChecklistDefinition,
     status: String,
+    poison: String,
     existingEvidenceCount: Int,
     selectedEvidenceCount: Int,
     onStatusChange: (String) -> Unit,
+    onPoisonChange: (String) -> Unit,
     onPickEvidence: () -> Unit,
 ) {
     Card(
@@ -398,15 +427,22 @@ private fun ChecklistCard(
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                FilterChip(
-                    selected = status == "CUMPLE",
-                    onClick = { onStatusChange("CUMPLE") },
-                    label = { Text("Cumple") },
-                )
-                FilterChip(
-                    selected = status == "NO_CUMPLE",
-                    onClick = { onStatusChange("NO_CUMPLE") },
-                    label = { Text("No cumple") },
+                definition.options.forEach { (value, label) ->
+                    FilterChip(
+                        selected = status == value,
+                        onClick = { onStatusChange(value) },
+                        label = { Text(label) },
+                    )
+                }
+            }
+            if (definition.requiresPoison && status == "SI") {
+                OutlinedTextField(
+                    value = poison,
+                    onValueChange = onPoisonChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Veneno utilizado") },
+                    placeholder = { Text("Ej: Atonit") },
+                    singleLine = true,
                 )
             }
             if (definition.requiresEvidence) {

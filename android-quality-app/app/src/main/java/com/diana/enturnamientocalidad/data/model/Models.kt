@@ -28,6 +28,7 @@ data class InspectionDto(
 data class ChecklistItemDto(
     val label: String,
     val status: String,
+    val poison: String? = null,
     val evidences: List<String> = emptyList(),
 )
 
@@ -66,6 +67,7 @@ data class AppStateDto(
 data class ChecklistSubmissionItem(
     val label: String,
     val status: String,
+    val poison: String? = null,
     val evidences: List<String>,
 )
 

@@ -1,19 +1,30 @@
 ﻿
 const API_BASE = window.location.protocol === "file:" ? "http://localhost:8000/api" : "/api";
 
+const STANDARD_CHECKLIST_OPTIONS = [
+  { value: "CUMPLE", label: "Cumple" },
+  { value: "NO_CUMPLE", label: "No cumple" },
+  { value: "NO_APLICA", label: "No aplica" },
+];
+
+const FUMIGATION_OPTIONS = [
+  { value: "SI", label: "Sí" },
+  { value: "NO", label: "No" },
+];
+
 const CHECKLIST_ITEMS = [
-  { key: "foodLegend", label: "Cuenta con leyenda visible Transporte de alimentos", evidence: true },
-  { key: "cleanliness", label: "Libre de suciedad", evidence: true },
-  { key: "strangeSmells", label: "Libre de olores extraños", evidence: false },
-  { key: "stains", label: "Libre de manchas", evidence: true },
-  { key: "damage", label: "Libre de orificios y averías", evidence: true },
-  { key: "humidity", label: "Libre de humedad", evidence: true },
-  { key: "infestation", label: "Libre de infestación", evidence: true },
-  { key: "woodenStakesPestFree", label: "Estacas de madera del vehículo libres de plagas (paredes y pisos)", evidence: true },
-  { key: "bulkWallsFloor", label: "Granel en paredes y piso limpio y en buen estado", evidence: true },
-  { key: "containerHoles", label: "Trompos limpios y protegidos", evidence: true },
-  { key: "fumigationIn", label: "Fumigación ingreso", evidence: true },
-  { key: "fumigationOut", label: "Fumigación salida", evidence: true },
+  { key: "foodLegend", label: 'Cuenta con leyenda visible "Transporte de alimentos"', evidence: true, options: STANDARD_CHECKLIST_OPTIONS },
+  { key: "cleanliness", label: "Libre de suciedad", evidence: true, options: STANDARD_CHECKLIST_OPTIONS },
+  { key: "strangeSmells", label: "Libre de olores extraños", evidence: false, options: STANDARD_CHECKLIST_OPTIONS },
+  { key: "stains", label: "Libre de manchas", evidence: true, options: STANDARD_CHECKLIST_OPTIONS },
+  { key: "damage", label: "Libre de orificios y averías", evidence: true, options: STANDARD_CHECKLIST_OPTIONS },
+  { key: "humidity", label: "Libre de humedad", evidence: true, options: STANDARD_CHECKLIST_OPTIONS },
+  { key: "infestation", label: "Libre de infestación (plagas, roedores y/o contaminación biológica)", evidence: true, options: STANDARD_CHECKLIST_OPTIONS },
+  { key: "bulkWallsFloor", label: "Granel en paredes y piso limpio y en buen estado", evidence: true, options: STANDARD_CHECKLIST_OPTIONS },
+  { key: "containerHoles", label: "Trompos (agujeros de ensamble del contenedor) limpios y con la debida protección de parche", evidence: true, options: STANDARD_CHECKLIST_OPTIONS },
+  { key: "woodenStakesPestFree", label: "Estacas de madera del vehículo libres de plagas (paredes y pisos)", evidence: true, options: STANDARD_CHECKLIST_OPTIONS },
+  { key: "fumigationIn", label: "Fumigación ingreso", evidence: true, options: FUMIGATION_OPTIONS, poisonField: true },
+  { key: "fumigationOut", label: "Fumigación salida", evidence: true, options: FUMIGATION_OPTIONS, poisonField: true },
 ];
 
 const HISTORY_CHECKLIST_COLUMNS = [
@@ -23,10 +34,10 @@ const HISTORY_CHECKLIST_COLUMNS = [
   { key: "stains", title: "Libre de manchas" },
   { key: "damage", title: "Libre de orificios y averías" },
   { key: "humidity", title: "Libre de humedad" },
-  { key: "infestation", title: "Libre de infestación" },
+  { key: "infestation", title: "Libre de infestación (plagas, roedores y/o contaminación biológica)" },
   { key: "woodenStakesPestFree", title: "Estacas de madera libres de plagas" },
-  { key: "bulkWallsFloor", title: "Granel en paredes y piso" },
-  { key: "containerHoles", title: "Trompos limpios y protegidos" },
+  { key: "bulkWallsFloor", title: "Granel en paredes y piso limpio y en buen estado" },
+  { key: "containerHoles", title: "Trompos limpios y con la debida protección de parche" },
   { key: "fumigationIn", title: "Fumigación ingreso" },
   { key: "fumigationOut", title: "Fumigación salida" },
 ];
@@ -72,6 +83,7 @@ const elements = {
   searchInput: document.querySelector("#searchInput"),
   historySearchInput: document.querySelector("#historySearchInput"),
   exportHistoryButton: document.querySelector("#exportHistoryButton"),
+  exportHistoryPdfButton: document.querySelector("#exportHistoryPdfButton"),
   queueTables: document.querySelector("#queueTables"),
   cityQueueTables: document.querySelector("#cityQueueTables"),
   historyTable: document.querySelector("#historyTable"),
@@ -197,6 +209,7 @@ function bindEvents() {
   });
   elements.historySearchInput.addEventListener("input", renderHistoryTable);
   elements.exportHistoryButton?.addEventListener("click", exportHistoryToExcel);
+  elements.exportHistoryPdfButton?.addEventListener("click", exportHistoryToPdf);
   elements.rejectForm.addEventListener("submit", submitRejectVehicle);
   elements.cancelRejectButton.addEventListener("click", closeRejectModal);
   elements.qualityForm.addEventListener("submit", submitQualityInspection);
@@ -224,7 +237,7 @@ function bindEvents() {
   elements.closeMediaPreviewButton?.addEventListener("click", closeMediaPreviewModal);
   document.addEventListener("click", handleMediaPreviewClick);
   document.addEventListener("click", handleDashboardDestinationDocumentClick);
-  document.addEventListener("input", handleTableFilterInput);
+  document.addEventListener("input", handleNamedTableFilterInput);
 }
 
 async function loadSession() {
@@ -504,11 +517,13 @@ function renderQueueTables() {
         "Fila general de transportadoras",
         "Aquí continúan todas las transportadoras diferentes de 4000801 - DIANA AGRICOLA S.A.S.",
         renderTable(columns, generalRows, "No hay vehículos en la fila general."),
+        "Filtrar placa, transportadora, conductor, destino o estado en la fila general...",
       ),
       renderNamedTable(
         "Fila paralela DIANA AGRICOLA S.A.S",
         "Esta fila es exclusiva para la transportadora 4000801 - DIANA AGRICOLA S.A.S.",
         renderTable(columns, dianaRows, "No hay vehículos en la fila paralela de Diana Agrícola."),
+        "Filtrar placa, conductor, destino o estado en la fila paralela Diana...",
       ),
     ].join("");
     bindQueueActions();
@@ -610,14 +625,20 @@ function findVehicleById(vehicleId) {
   return allVehicles.find((item) => item.id === vehicleId) || null;
 }
 
-function renderNamedTable(title, subtitle, content) {
+function renderNamedTable(title, subtitle, content, filterPlaceholder = "Filtrar esta consulta...") {
   return `
-    <section class="panel soft">
+    <section class="panel soft named-table-panel">
       <div class="panel-heading">
         <div>
           <h3>${escapeHtml(title)}</h3>
           <p>${escapeHtml(subtitle)}</p>
         </div>
+      </div>
+      <div class="named-table-tools">
+        <label class="search wide-search">
+          Filtrar información
+          <input type="search" class="named-table-filter-input" data-named-table-filter placeholder="${escapeHtml(filterPlaceholder)}" />
+        </label>
       </div>
       ${content}
     </section>
@@ -643,6 +664,7 @@ function renderCityQueues() {
         rows,
         `No hay vehículos visibles para ${group.city}.`,
       ),
+      `Filtrar placas, transportadora, conductor o estado en ${group.city}...`,
     );
   });
   elements.cityQueueTables.innerHTML = blocks.join("") || `<div class="empty">No hay ciudades configuradas.</div>`;
@@ -892,10 +914,11 @@ function renderChecklistForm() {
       <div class="item-grid">
         <label>Resultado
           <select data-field="status">
-            <option value="CUMPLE">Cumple</option>
-            <option value="NO_CUMPLE">No cumple</option>
+            <option value="">Selecciona una opción</option>
+            ${item.options.map((option) => `<option value="${option.value}">${option.label}</option>`).join("")}
           </select>
         </label>
+        ${item.poisonField ? `<label>Veneno utilizado<input data-field="poison" type="text" placeholder="Ej: Atonit" /></label>` : ""}
         ${item.evidence ? `<label>Foto evidencia<input data-field="evidence" type="file" accept="image/*" multiple /></label>` : ""}
       </div>
     </section>
@@ -1197,7 +1220,9 @@ function openQualityModal(vehicle) {
     const wrapper = elements.qualityChecklistGrid.querySelector(`[data-check-item='${item.key}']`);
     const select = wrapper.querySelector("[data-field='status']");
     const existing = inspection.checklist?.[item.key];
-    select.value = existing?.status || "CUMPLE";
+    select.value = existing?.status || "";
+    const poisonInput = wrapper.querySelector("[data-field='poison']");
+    if (poisonInput) poisonInput.value = existing?.poison || "";
     const input = wrapper.querySelector("[data-field='evidence']");
     if (input) input.value = "";
   });
@@ -1219,9 +1244,19 @@ async function submitQualityInspection(event) {
     for (const item of CHECKLIST_ITEMS) {
       const wrapper = elements.qualityChecklistGrid.querySelector(`[data-check-item='${item.key}']`);
       const status = wrapper.querySelector("[data-field='status']").value;
+      if (!status) {
+        showToast(`Debes seleccionar el resultado en: ${item.label}.`);
+        return;
+      }
       const evidenceInput = wrapper.querySelector("[data-field='evidence']");
+      const poisonInput = wrapper.querySelector("[data-field='poison']");
       const evidences = evidenceInput ? await filesToDataUrls(Array.from(evidenceInput.files || [])) : [];
-      checklist[item.key] = { label: item.label, status, evidences };
+      checklist[item.key] = {
+        label: item.label,
+        status,
+        poison: poisonInput ? poisonInput.value.trim() : "",
+        evidences,
+      };
     }
     const suitability = Array.from(document.querySelectorAll("[name='suitability']:checked")).map((item) => item.value);
     await request(`/quality/${encodeURIComponent(state.qualityVehicle.id)}/inspect`, {
@@ -1246,12 +1281,7 @@ function renderTable(columns, rows, emptyText) {
   return `
     <div class="table-wrap">
       <table>
-        <thead>
-          <tr>${columns.map(([title]) => `<th>${title}</th>`).join("")}</tr>
-          <tr class="table-filter-row">
-            ${columns.map(([title], index) => renderTableFilterCell(title, index)).join("")}
-          </tr>
-        </thead>
+        <thead><tr>${columns.map(([title]) => `<th>${title}</th>`).join("")}</tr></thead>
         <tbody>
           ${rows.map((row, index) => `
             <tr>
@@ -1264,50 +1294,20 @@ function renderTable(columns, rows, emptyText) {
   `;
 }
 
-function renderTableFilterCell(title, index) {
-  if (!shouldEnableColumnFilter(title)) {
-    return `<th class="table-filter-cell disabled"></th>`;
-  }
-  return `
-    <th class="table-filter-cell">
-      <input
-        class="table-filter-input"
-        type="search"
-        placeholder="Filtrar..."
-        data-table-filter="${index}"
-      />
-    </th>
-  `;
-}
-
-function shouldEnableColumnFilter(title) {
-  const normalized = String(title || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-  return !["accion", "acciones", "soportes", "#"].includes(normalized);
-}
-
-function handleTableFilterInput(event) {
-  const input = event.target.closest("[data-table-filter]");
+function handleNamedTableFilterInput(event) {
+  const input = event.target.closest("[data-named-table-filter]");
   if (!input) return;
-  const tableWrap = input.closest(".table-wrap");
+  const tableWrap = input.closest(".named-table-panel")?.querySelector(".table-wrap");
   if (!tableWrap) return;
-  applyTableFilters(tableWrap);
+  applyNamedTableFilter(tableWrap, input.value);
 }
 
-function applyTableFilters(tableWrap) {
-  const inputs = Array.from(tableWrap.querySelectorAll("[data-table-filter]"));
+function applyNamedTableFilter(tableWrap, query) {
   const rows = Array.from(tableWrap.querySelectorAll("tbody tr"));
   rows.forEach((row) => {
-    const visible = inputs.every((input) => {
-      const query = String(input.value || "").trim().toLowerCase();
-      if (!query) return true;
-      const columnIndex = Number(input.dataset.tableFilter);
-      const cell = row.cells[columnIndex];
-      const text = String(cell?.textContent || "").trim().toLowerCase();
-      return text.includes(query);
-    });
+    const search = String(query || "").trim().toLowerCase();
+    const text = String(row.textContent || "").trim().toLowerCase();
+    const visible = !search || text.includes(search);
     row.classList.toggle("hidden", !visible);
   });
 }
@@ -1430,6 +1430,33 @@ function exportHistoryToExcel() {
   showToast("Informe exportado en Excel.");
 }
 
+async function exportHistoryToPdf() {
+  const rows = filterHistoryRows(state.appState?.history || []);
+  if (!rows.length) {
+    showToast("No hay registros para imprimir en PDF.");
+    return;
+  }
+  try {
+    const blob = await requestBlob("/history/pdf", {
+      method: "POST",
+      body: {
+        recordIds: rows.map((row) => row.id),
+      },
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `historial-fo-cl-021-${new Date().toISOString().slice(0, 10)}.pdf`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    showToast("PDF corporativo generado correctamente.");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
 function getHistoryCarrierLabel(item) {
   if (item.carrierLabel) return item.carrierLabel;
   const code = item.carrierCode ? `${item.carrierCode} - ` : "";
@@ -1464,9 +1491,14 @@ function getHistoryFindings(item) {
 
 function getChecklistHistoryResult(item, checklistKey) {
   const checklist = item.qualityChecklist || item.checklist || {};
-  const status = checklist?.[checklistKey]?.status;
-  if (status === "CUMPLE") return "Apto";
-  if (status === "NO_CUMPLE") return "No apto";
+  const checklistItem = checklist?.[checklistKey] || {};
+  const status = checklistItem.status;
+  const poison = checklistItem.poison ? ` (${checklistItem.poison})` : "";
+  if (status === "CUMPLE") return "Cumple";
+  if (status === "NO_CUMPLE") return "No cumple";
+  if (status === "NO_APLICA") return "No aplica";
+  if (status === "SI") return `Sí${poison}`;
+  if (status === "NO") return "No";
   return "Pendiente";
 }
 
@@ -1751,6 +1783,20 @@ async function request(path, options = {}) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || "Ocurrió un error en el servidor.");
   return data;
+}
+
+async function requestBlob(path, options = {}) {
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: options.method || "GET",
+    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || "No se pudo generar el archivo solicitado.");
+  }
+  return await response.blob();
 }
 
 function formatDate(value) {

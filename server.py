@@ -4,6 +4,7 @@ import base64
 import binascii
 import hashlib
 import hmac
+import io
 import json
 import math
 import mimetypes
@@ -15,8 +16,6 @@ import sqlite3
 import threading
 import urllib.request
 
-import psycopg2
-import psycopg2.extras
 from datetime import datetime, timedelta, timezone
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -24,9 +23,16 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, unquote, urlparse
 
+try:
+    import psycopg2
+    import psycopg2.extras
+except Exception:  # pragma: no cover - fallback local sin PostgreSQL
+    psycopg2 = None
+
 
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
+SQLITE_FALLBACK_PATH = Path(os.environ.get("SQLITE_FALLBACK_PATH", str(BASE_DIR / "data" / "enturnamiento.db")))
 FCM_SERVER_KEY = os.environ.get("FCM_SERVER_KEY", "")
 VAPID_SUBJECT = os.environ.get("VAPID_SUBJECT", "mailto:admin@enturnamiento.com")
 UPLOADS_DIR = Path(os.environ.get("UPLOADS_DIR", str(BASE_DIR / "data" / "uploads")))
@@ -121,6 +127,24 @@ INITIAL_CENTERS = [
     ("1010", "1010", "Yopal centro 1010", "5.286142", "-72.402228", "180", "1"),
     ("1000", "1000", "Espinal centro 1000", "4.158676", "-74.900485", "180", "1"),
 ]
+
+PDF_TEMPLATE_PATH = BASE_DIR / "assets" / "Formato_FO-CL-021_AJUSTADO.pdf"
+PDF_LOGO_PATH = BASE_DIR / "assets" / "logo-diana-corporativo.png"
+CHECKLIST_EXPORT_ROWS = [
+    ("foodLegend", 'Cuenta con leyenda visible "Transporte de alimentos"'),
+    ("cleanliness", "Libre de suciedad"),
+    ("strangeSmells", "Libre de olores extraños"),
+    ("stains", "Libre de manchas"),
+    ("damage", "Libre de orificios y averías"),
+    ("humidity", "Libre de humedad"),
+    ("infestation", "Libre de infestación"),
+    ("bulkWallsFloor", "Granel en paredes y piso"),
+    ("containerHoles", "Trompos limpios y protegidos"),
+    ("woodenStakesPestFree", "Estacas de madera libres de plagas"),
+    ("fumigationIn", "Fumigación ingreso"),
+    ("fumigationOut", "Fumigación salida"),
+]
+DATABASE_DRIVER_ERRORS = (psycopg2.Error,) if psycopg2 else (RuntimeError,)
 
 
 class AppError(Exception):
@@ -333,13 +357,48 @@ def _dispatch_notifications(title: str, body: str, tag: str) -> None:
 
 
 def get_connection() -> _Conn:
-    if not DATABASE_URL:
-        raise RuntimeError(
-            "DATABASE_URL no configurada. "
-            "Agrega la variable de entorno en el dashboard de Render.com."
-        )
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-    return _Conn(psycopg2.connect(DATABASE_URL))
+    SQLITE_FALLBACK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if DATABASE_URL and psycopg2:
+        try:
+            return _Conn(psycopg2.connect(DATABASE_URL))
+        except DATABASE_DRIVER_ERRORS as error:
+            print(f"PostgreSQL no disponible, se activa contingencia SQLite: {error}")
+    elif DATABASE_URL and not psycopg2:
+        print("psycopg2 no está disponible; se activa contingencia SQLite.")
+    sqlite_conn = sqlite3.connect(SQLITE_FALLBACK_PATH)
+    sqlite_conn.row_factory = sqlite3.Row
+    sqlite_conn.execute("PRAGMA foreign_keys = ON")
+    return sqlite_conn
+
+
+def is_postgres_connection(db: Any) -> bool:
+    return isinstance(db, _Conn)
+
+
+def list_table_columns(db: Any, table_name: str) -> set[str]:
+    if is_postgres_connection(db):
+        return {
+            row["name"]
+            for row in db.execute(
+                "SELECT column_name AS name FROM information_schema.columns "
+                "WHERE table_name = ? AND table_schema = current_schema()",
+                (table_name,),
+            ).fetchall()
+        }
+    return {
+        row["name"]
+        for row in db.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
+
+
+def add_column_if_missing(db: Any, table_name: str, column_name: str, column_type: str) -> None:
+    if column_name in list_table_columns(db, table_name):
+        return
+    if is_postgres_connection(db):
+        db.execute(f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {column_name} {column_type}")
+        return
+    db.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
 
 
 def hash_password(password: str) -> str:
@@ -483,10 +542,7 @@ def init_db() -> None:
 
 
 def ensure_vehicle_columns(db: sqlite3.Connection) -> None:
-    columns = {row["name"] for row in db.execute(
-        "SELECT column_name AS name FROM information_schema.columns "
-        "WHERE table_name = 'vehicles' AND table_schema = current_schema()"
-    ).fetchall()}
+    columns = list_table_columns(db, "vehicles")
     extra_columns = {
         "carrier_id": "TEXT",
         "driver_phone": "TEXT",
@@ -507,8 +563,7 @@ def ensure_vehicle_columns(db: sqlite3.Connection) -> None:
         "center_name": "TEXT",
     }
     for column_name, column_type in extra_columns.items():
-        if column_name not in columns:
-            db.execute(f"ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS {column_name} {column_type}")
+        add_column_if_missing(db, "vehicles", column_name, column_type)
     db.execute(
         "UPDATE vehicles SET quality_status = ? WHERE quality_status IS NULL OR quality_status = ''",
         (QUALITY_PENDING,),
@@ -520,14 +575,28 @@ def ensure_vehicle_columns(db: sqlite3.Connection) -> None:
         "UPDATE vehicles SET queue_group = ? WHERE queue_group IS NULL OR queue_group = ''",
         (QUEUE_GROUP_GENERAL,),
     )
-    db.execute(
-        """
-        UPDATE vehicles
-        SET destination_ids_json = json_build_array(destination_id)::text
-        WHERE (destination_ids_json IS NULL OR destination_ids_json = '')
-          AND destination_id IS NOT NULL AND destination_id != ''
-        """
-    )
+    if is_postgres_connection(db):
+        db.execute(
+            """
+            UPDATE vehicles
+            SET destination_ids_json = json_build_array(destination_id)::text
+            WHERE (destination_ids_json IS NULL OR destination_ids_json = '')
+              AND destination_id IS NOT NULL AND destination_id != ''
+            """
+        )
+    else:
+        rows_missing_destinations = db.execute(
+            """
+            SELECT id, destination_id FROM vehicles
+            WHERE (destination_ids_json IS NULL OR destination_ids_json = '')
+              AND destination_id IS NOT NULL AND destination_id != ''
+            """
+        ).fetchall()
+        for row in rows_missing_destinations:
+            db.execute(
+                "UPDATE vehicles SET destination_ids_json = ? WHERE id = ?",
+                (json.dumps([row["destination_id"]], ensure_ascii=False), row["id"]),
+            )
     rows = db.execute("SELECT id, carrier_code FROM vehicles").fetchall()
     for row in rows:
         db.execute(
@@ -550,17 +619,14 @@ def ensure_user_roles_schema(db: _Conn) -> None:
 
 
 def ensure_center_columns(db: sqlite3.Connection) -> None:
-    user_columns = {row["name"] for row in db.execute(
-        "SELECT column_name AS name FROM information_schema.columns "
-        "WHERE table_name = 'users' AND table_schema = current_schema()"
-    ).fetchall()}
+    user_columns = list_table_columns(db, "users")
     for column_name, column_type in {
         "center_id": "TEXT",
         "center_code": "TEXT",
         "center_name": "TEXT",
     }.items():
         if column_name not in user_columns:
-            db.execute(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {column_name} {column_type}")
+            add_column_if_missing(db, "users", column_name, column_type)
     db.execute(
         "UPDATE users SET center_id = ?, center_code = ?, center_name = ? WHERE center_id IS NULL OR center_id = ''",
         (DEFAULT_CENTER_ID, DEFAULT_CENTER_ID, "Yopal centro 1010"),
@@ -1062,6 +1128,126 @@ def build_history_rows(
         )
     history.sort(key=lambda item: item["createdAt"], reverse=True)
     return history
+
+
+def translate_checklist_status(status: str, poison: str = "") -> str:
+    normalized = clean_text(status).upper()
+    if normalized == "CUMPLE":
+        return "Cumple"
+    if normalized == "NO_CUMPLE":
+        return "No cumple"
+    if normalized == "NO_APLICA":
+        return "No aplica"
+    if normalized == "SI":
+        return f"Sí ({poison})" if poison else "Sí"
+    if normalized == "NO":
+        return "No"
+    return "Pendiente"
+
+
+def build_history_pdf(records: List[Dict[str, Any]]) -> bytes:
+    try:
+        from pypdf import PdfReader, PdfWriter
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import landscape, letter
+        from reportlab.lib.utils import ImageReader
+        from reportlab.pdfgen import canvas
+    except Exception as exc:
+        raise AppError(f"No se pudo cargar el generador PDF: {exc}", 500) from exc
+
+    checklist_rows = CHECKLIST_EXPORT_ROWS
+    writer = PdfWriter()
+    template_page = None
+    page_width, page_height = landscape(letter)
+    if PDF_TEMPLATE_PATH.exists():
+        template_reader = PdfReader(str(PDF_TEMPLATE_PATH))
+        if template_reader.pages:
+            template_page = template_reader.pages[0]
+            page_width = float(template_page.mediabox.width)
+            page_height = float(template_page.mediabox.height)
+
+    for index, record in enumerate(records, start=1):
+        buffer = io.BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=(page_width, page_height))
+        destinations_text = ", ".join(
+            [
+                f"{item.get('city', '')} - {item.get('zone', '')}".strip(" -")
+                for item in record.get("destinations", [])
+                if item.get("city") or item.get("zone")
+            ]
+        ) or "-"
+        carrier_text = f"{record.get('carrierCode') or ''} {record.get('carrier') or '-'}".strip()
+        if PDF_LOGO_PATH.exists():
+            pdf.drawImage(ImageReader(str(PDF_LOGO_PATH)), 18, page_height - 72, width=95, height=48, mask="auto")
+        pdf.setFont("Helvetica-Bold", 12)
+        pdf.drawCentredString(page_width / 2, page_height - 28, "DIANA CORPORACIÓN S.A.S")
+        pdf.setFont("Helvetica-Bold", 11)
+        pdf.drawCentredString(page_width / 2, page_height - 44, "ASEGURAR CALIDAD DEL PRODUCTO")
+        pdf.drawCentredString(page_width / 2, page_height - 58, "INSPECCIÓN Y FUMIGACIÓN DE VEHÍCULOS")
+        pdf.setFont("Helvetica", 9)
+        pdf.drawString(18, page_height - 88, f"Fecha: {record.get('qualityReviewedDate') or record.get('createdDate') or '-'}")
+        pdf.drawString(18, page_height - 104, f"Hora: {record.get('qualityReviewedTime') or record.get('createdTime') or '-'}")
+        pdf.drawString(150, page_height - 88, f"Conductor: {record.get('driverName') or '-'}")
+        pdf.drawString(150, page_height - 104, f"Placa: {record.get('plate') or '-'}")
+        pdf.drawString(410, page_height - 88, f"Destino: {destinations_text}")
+        pdf.drawString(410, page_height - 104, f"Transportadora: {carrier_text}")
+        pdf.drawString(page_width - 126, page_height - 46, "FO-CL-021")
+        pdf.setFont("Helvetica-Bold", 8)
+
+        top = page_height - 126
+        row_height = 22
+        columns = [18, 260, 338, 430, page_width - 20]
+        headers = ["Concepto", "Resultado", "Veneno", "Evidencias / notas"]
+        pdf.setFillColor(colors.HexColor("#edf4ff"))
+        pdf.rect(columns[0], top, columns[-1] - columns[0], row_height, stroke=1, fill=1)
+        pdf.setFillColor(colors.black)
+        for idx_header, header in enumerate(headers):
+            pdf.drawString(columns[idx_header] + 6, top + 7, header)
+
+        pdf.setFont("Helvetica", 8)
+        current_y = top - row_height
+        checklist = record.get("qualityChecklist") or {}
+        for item_key, item_label in checklist_rows:
+            item = checklist.get(item_key) or {}
+            pdf.rect(columns[0], current_y, columns[-1] - columns[0], row_height, stroke=1, fill=0)
+            for divider in columns[1:-1]:
+                pdf.line(divider, current_y, divider, current_y + row_height)
+            evidences = item.get("evidences") or []
+            pdf.drawString(columns[0] + 6, current_y + 7, item_label[:52])
+            pdf.drawString(columns[1] + 6, current_y + 7, translate_checklist_status(item.get("status", ""), item.get("poison", ""))[:17])
+            pdf.drawString(columns[2] + 6, current_y + 7, clean_text(item.get("poison"))[:14] or "-")
+            pdf.drawString(columns[3] + 6, current_y + 7, f"{len(evidences)} foto(s)" if evidences else "-")
+            current_y -= row_height
+
+        info_top = current_y - 8
+        pdf.setFont("Helvetica-Bold", 8)
+        pdf.drawString(18, info_top, "Decisión final:")
+        pdf.drawString(170, info_top, "Observaciones / medida correctiva:")
+        pdf.drawString(490, info_top, "Responsable inspección:")
+        pdf.setFont("Helvetica", 8)
+        pdf.drawString(18, info_top - 14, record.get("qualityDecision") or record.get("qualityStatus") or "-")
+        observations = clean_text(record.get("qualityObservations") or record.get("qualityFindingsSummary") or record.get("rejectionReason") or "-")
+        pdf.drawString(170, info_top - 14, observations[:56])
+        if len(observations) > 56:
+            pdf.drawString(170, info_top - 28, observations[56:112])
+        pdf.drawString(490, info_top - 14, record.get("qualityInspectorName") or "-")
+        pdf.drawString(18, info_top - 40, f"Registro {index} de {len(records)}")
+        pdf.drawString(170, info_top - 40, f"Turnos por ciudad: {', '.join([f'{city}: {turn}' for city, turn in (record.get('cityTurns') or {}).items()]) or '-'}")
+        pdf.showPage()
+        pdf.save()
+        buffer.seek(0)
+        overlay_reader = PdfReader(buffer)
+        overlay_page = overlay_reader.pages[0]
+        if template_page is not None:
+            page = template_page.clone(writer)
+            page.merge_page(overlay_page)
+            writer.add_page(page)
+        else:
+            writer.add_page(overlay_page)
+
+    output = io.BytesIO()
+    writer.write(output)
+    return output.getvalue()
 
 
 def get_user_state(user: sqlite3.Row, origin: str) -> Dict[str, Any]:
@@ -1983,7 +2169,8 @@ def get_public_config(origin: str, center_id: Optional[str] = None) -> Dict[str,
 def build_findings_summary(checklist: Dict[str, Any]) -> str:
     findings = []
     for key, item in checklist.items():
-        if isinstance(item, dict) and clean_text(item.get("status")).upper() == "NO_CUMPLE":
+        status = clean_text(item.get("status")).upper() if isinstance(item, dict) else ""
+        if status in {"NO_CUMPLE", "NO"}:
             findings.append(clean_text(item.get("label")) or key)
     return ", ".join(findings[:6]) or "Inspeccion registrada"
 
@@ -2141,7 +2328,7 @@ class Handler(BaseHTTPRequestHandler):
             self.serve_static(parsed.path)
         except AppError as error:
             self.send_error_json(error.message, error.status)
-        except psycopg2.Error as error:
+        except DATABASE_DRIVER_ERRORS as error:
             self.send_error_json(f"Error de base de datos: {error}", 500)
 
     def do_POST(self) -> None:
@@ -2214,6 +2401,21 @@ class Handler(BaseHTTPRequestHandler):
                 add_user(payload)
                 self.send_json(get_user_state(user, self.request_origin()), 201)
                 return
+            if parsed.path == "/api/history/pdf":
+                record_ids = [clean_text(item) for item in (payload.get("recordIds") or []) if clean_text(item)]
+                app_state = get_user_state(user, self.request_origin())
+                visible_history = app_state.get("history", [])
+                if record_ids:
+                    visible_history = [item for item in visible_history if item["id"] in set(record_ids)]
+                if not visible_history:
+                    raise AppError("No hay registros visibles para imprimir en PDF.", 404)
+                pdf_content = build_history_pdf(visible_history)
+                self.send_binary(
+                    pdf_content,
+                    "application/pdf",
+                    f"historial-fo-cl-021-{now_local().strftime('%Y%m%d-%H%M')}.pdf",
+                )
+                return
             if parsed.path == "/api/vehicles":
                 self.require_any_role(user, {ROLE_ADMIN, ROLE_LOGISTICS})
                 create_vehicle(payload, "DESK", None, None, None, user["center_id"])
@@ -2248,7 +2450,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error_json("Ruta no encontrada.", 404)
         except AppError as error:
             self.send_error_json(error.message, error.status)
-        except psycopg2.Error as error:
+        except DATABASE_DRIVER_ERRORS as error:
             self.send_error_json(f"Error de base de datos: {error}", 500)
 
     def do_PUT(self) -> None:
@@ -2284,7 +2486,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error_json("Ruta no encontrada.", 404)
         except AppError as error:
             self.send_error_json(error.message, error.status)
-        except psycopg2.Error as error:
+        except DATABASE_DRIVER_ERRORS as error:
             self.send_error_json(f"Error de base de datos: {error}", 500)
 
     def do_DELETE(self) -> None:
@@ -2313,7 +2515,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error_json("Ruta no encontrada.", 404)
         except AppError as error:
             self.send_error_json(error.message, error.status)
-        except psycopg2.Error as error:
+        except DATABASE_DRIVER_ERRORS as error:
             self.send_error_json(f"Error de base de datos: {error}", 500)
 
     def do_OPTIONS(self) -> None:
@@ -2445,6 +2647,14 @@ class Handler(BaseHTTPRequestHandler):
         if headers:
             for key, value in headers.items():
                 self.send_header(key, value)
+        self.send_header("Content-Length", str(len(content)))
+        self.end_headers()
+        self.wfile.write(content)
+
+    def send_binary(self, content: bytes, content_type: str, filename: str, status: int = 200) -> None:
+        self.send_response(status)
+        self.add_common_headers(content_type)
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
         self.send_header("Content-Length", str(len(content)))
         self.end_headers()
         self.wfile.write(content)
