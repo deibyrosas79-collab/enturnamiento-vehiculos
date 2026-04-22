@@ -1,7 +1,9 @@
-package com.diana.enturnamientocalidad.ui
+﻿package com.diana.enturnamientocalidad.ui
 
+import android.Manifest
 import android.content.ContentValues
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
@@ -48,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import com.diana.enturnamientocalidad.data.model.ChecklistSubmissionItem
 import com.diana.enturnamientocalidad.data.model.VehicleDto
 import androidx.compose.runtime.snapshots.SnapshotStateList
@@ -64,16 +67,16 @@ private data class ChecklistDefinition(
 private val inspectionChecklist = listOf(
     ChecklistDefinition("foodLegend", "Cuenta con leyenda visible \"Transporte de alimentos\"", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
     ChecklistDefinition("cleanliness", "Libre de suciedad", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
-    ChecklistDefinition("strangeSmells", "Libre de olores extraños", false, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
+    ChecklistDefinition("strangeSmells", "Libre de olores extraÃ±os", false, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
     ChecklistDefinition("stains", "Libre de manchas", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
-    ChecklistDefinition("damage", "Libre de orificios y averías", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
+    ChecklistDefinition("damage", "Libre de orificios y averÃ­as", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
     ChecklistDefinition("humidity", "Libre de humedad", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
-    ChecklistDefinition("infestation", "Libre de infestación (plagas, roedores y/o contaminación biológica)", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
+    ChecklistDefinition("infestation", "Libre de infestaciÃ³n (plagas, roedores y/o contaminaciÃ³n biolÃ³gica)", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
     ChecklistDefinition("bulkWallsFloor", "Granel en paredes y piso limpio y en buen estado", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
-    ChecklistDefinition("containerHoles", "Trompos (agujeros de ensamble del contenedor) limpios y con la debida protección de parche", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
-    ChecklistDefinition("woodenStakesPestFree", "Estacas de madera del vehículo libres de plagas (paredes y pisos)", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
-    ChecklistDefinition("fumigationIn", "Fumigación ingreso", true, listOf("SI" to "Sí", "NO" to "No"), requiresPoison = true),
-    ChecklistDefinition("fumigationOut", "Fumigación salida", true, listOf("SI" to "Sí", "NO" to "No"), requiresPoison = true),
+    ChecklistDefinition("containerHoles", "Trompos (agujeros de ensamble del contenedor) limpios y con la debida protecciÃ³n de parche", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
+    ChecklistDefinition("woodenStakesPestFree", "Estacas de madera del vehÃ­culo libres de plagas (paredes y pisos)", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
+    ChecklistDefinition("fumigationIn", "FumigaciÃ³n ingreso", true, listOf("SI" to "SÃ­", "NO" to "No"), requiresPoison = true),
+    ChecklistDefinition("fumigationOut", "FumigaciÃ³n salida", true, listOf("SI" to "SÃ­", "NO" to "No"), requiresPoison = true),
 )
 
 private val suitabilityOptions = listOf(
@@ -146,11 +149,46 @@ fun InspectionScreen(
         val uri = pendingCaptureUri
         if (success && target != null && uri != null) {
             evidenceUris[target]?.add(uri)
+            localValidationError = null
         } else if (uri != null) {
             context.contentResolver.delete(uri, null, null)
         }
         captureTarget = null
         pendingCaptureUri = null
+    }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions(),
+    ) { permissions ->
+        val target = captureTarget
+        val cameraGranted = permissions[Manifest.permission.CAMERA] == true
+        val storageGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            true
+        } else {
+            permissions[Manifest.permission.WRITE_EXTERNAL_STORAGE] == true
+        }
+        if (!cameraGranted || !storageGranted) {
+            pendingCaptureUri?.let { uri ->
+                context.contentResolver.delete(uri, null, null)
+            }
+            captureTarget = null
+            pendingCaptureUri = null
+            localValidationError = "Debes permitir camara y almacenamiento para registrar la foto."
+            return@rememberLauncherForActivityResult
+        }
+        if (target.isNullOrBlank()) {
+            localValidationError = "No se encontro el punto del checklist para tomar la foto."
+            return@rememberLauncherForActivityResult
+        }
+        val captureUri = createChecklistCameraUri(context, vehicle?.plate ?: "vehiculo", target)
+        if (captureUri == null) {
+            captureTarget = null
+            pendingCaptureUri = null
+            localValidationError = "No se pudo preparar la camara del dispositivo."
+            return@rememberLauncherForActivityResult
+        }
+        localValidationError = null
+        pendingCaptureUri = captureUri
+        cameraLauncher.launch(captureUri)
     }
 
     Column(
@@ -266,14 +304,31 @@ fun InspectionScreen(
                         localValidationError = null
                     },
                     onPickEvidence = {
-                        val captureUri = createChecklistCameraUri(context, vehicle.plate, definition.key)
-                        if (captureUri == null) {
-                            localValidationError = "No se pudo abrir la cámara para ${definition.label}."
+                        captureTarget = definition.key
+                        val requiredPermissions = buildList {
+                            add(Manifest.permission.CAMERA)
+                            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                                add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                            }
+                        }
+                        val hasAllPermissions = requiredPermissions.all { permission ->
+                            ContextCompat.checkSelfPermission(
+                                context,
+                                permission,
+                            ) == PackageManager.PERMISSION_GRANTED
+                        }
+                        if (!hasAllPermissions) {
+                            permissionLauncher.launch(requiredPermissions.toTypedArray())
                         } else {
-                            localValidationError = null
-                            captureTarget = definition.key
-                            pendingCaptureUri = captureUri
-                            cameraLauncher.launch(captureUri)
+                            val captureUri = createChecklistCameraUri(context, vehicle.plate, definition.key)
+                            if (captureUri == null) {
+                                captureTarget = null
+                                localValidationError = "No se pudo abrir la camara para ${definition.label}."
+                            } else {
+                                localValidationError = null
+                                pendingCaptureUri = captureUri
+                                cameraLauncher.launch(captureUri)
+                            }
                         }
                     },
                 )
@@ -471,7 +526,7 @@ private fun ChecklistCard(
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Button(onClick = onPickEvidence) {
-                            Text(if (selectedEvidenceCount > 0) "Tomar otra foto" else "Abrir cámara")
+                            Text(if (selectedEvidenceCount > 0) "Tomar otra foto" else "Registro foto")
                         }
                     }
                 }
@@ -536,3 +591,5 @@ private fun createChecklistCameraUri(context: Context, plate: String, checklistK
     }
     return context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
 }
+
+
