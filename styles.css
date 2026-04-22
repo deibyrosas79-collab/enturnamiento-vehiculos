@@ -529,7 +529,7 @@ table {
 
 th,
 td {
-  padding: 14px 16px;
+  padding: 10px 12px;
   border-bottom: 1px solid rgba(220, 230, 242, 0.85);
   text-align: left;
   white-space: nowrap;
@@ -555,29 +555,29 @@ th {
   z-index: 1;
   color: #3d5273;
   background: linear-gradient(180deg, #f0f6ff, #eaf2fd);
-  font-size: .73rem;
+  font-size: .68rem;
   font-weight: 800;
-  letter-spacing: .12em;
+  letter-spacing: .09em;
   text-transform: uppercase;
   border-bottom: 2px solid rgba(196, 210, 228, 0.7);
 }
 
 .named-table-panel th {
-  padding: 7px 8px;
-  font-size: 0.58rem;
-  letter-spacing: 0.08em;
+  padding: 4px 5px;
+  font-size: 0.46rem;
+  letter-spacing: 0.04em;
 }
 
 .named-table-panel td {
-  padding: 6px 8px;
-  font-size: 0.78rem;
-  line-height: 1.04;
+  padding: 3px 5px;
+  font-size: 0.64rem;
+  line-height: 0.98;
   vertical-align: middle;
 }
 
 .named-table-panel td .muted-text {
-  font-size: 0.68rem;
-  line-height: 1.05;
+  font-size: 0.57rem;
+  line-height: 0.96;
 }
 
 /* ─── TURN BADGE ──────────────────────────────────────── */
@@ -595,10 +595,10 @@ th {
 }
 
 .named-table-panel .turn {
-  min-width: 24px;
-  height: 24px;
-  font-size: 0.7rem;
-  box-shadow: 0 2px 8px rgba(27,88,232,0.16);
+  min-width: 18px;
+  height: 18px;
+  font-size: 0.56rem;
+  box-shadow: 0 2px 6px rgba(27,88,232,0.14);
 }
 
 /* ─── BADGES ──────────────────────────────────────────── */
@@ -635,8 +635,8 @@ th {
 
 .named-table-panel .badge {
   gap: 4px;
-  padding: 2px 7px;
-  font-size: 0.63rem;
+  padding: 1px 5px;
+  font-size: 0.54rem;
 }
 
 .named-table-panel .badge::before {
@@ -663,9 +663,9 @@ th {
 }
 
 .named-table-panel .actions button {
-  min-height: 24px;
-  padding: 3px 8px;
-  font-size: 0.66rem;
+  min-height: 20px;
+  padding: 1px 6px;
+  font-size: 0.56rem;
   border-radius: 999px;
 }
 

@@ -461,10 +461,10 @@ function renderApp() {
 
 function applyRoleVisibility(permissions) {
   const visibleMap = {
-    dashboard: Boolean(permissions?.canOperateLogistics),
+    dashboard: Boolean(permissions?.canViewDashboard || permissions?.canOperateLogistics),
     quality: Boolean(permissions?.canOperateQuality),
     history: true,
-    masters: Boolean(permissions?.canManageCatalogs || permissions?.canManageUsers),
+    masters: Boolean(permissions?.canManageCatalogs || permissions?.canManageUsers || permissions?.canViewCatalogs || permissions?.canViewUsers),
     reports: true,
     settings: Boolean(permissions?.canConfigureSite),
   };
@@ -479,11 +479,11 @@ function applyRoleVisibility(permissions) {
 
 function getFirstAllowedView(preferredView, permissions) {
   const allowedViews = [
-    { view: "dashboard", ok: Boolean(permissions?.canOperateLogistics) },
+    { view: "dashboard", ok: Boolean(permissions?.canViewDashboard || permissions?.canOperateLogistics) },
     { view: "quality", ok: Boolean(permissions?.canOperateQuality) },
     { view: "history", ok: true },
     { view: "reports", ok: true },
-    { view: "masters", ok: Boolean(permissions?.canManageCatalogs || permissions?.canManageUsers) },
+    { view: "masters", ok: Boolean(permissions?.canManageCatalogs || permissions?.canManageUsers || permissions?.canViewCatalogs || permissions?.canViewUsers) },
     { view: "settings", ok: Boolean(permissions?.canConfigureSite) },
   ].filter((item) => item.ok);
   return allowedViews.find((item) => item.view === preferredView)?.view || allowedViews[0]?.view || "history";
@@ -625,25 +625,15 @@ function renderQueueTables() {
       ...(state.appState.queueGroups?.general || []),
       ...(state.appState.queueGroups?.dianaAgricola || []),
     ];
-    const rows = filterZoneSummaryRows(
-      buildZoneSummaryRows({
-        queued: activeRows,
-        assigned: state.appState.assigned || [],
-        rejected: state.appState.rejected || [],
-      }),
-    );
+    const rows = filterZoneSummaryRows(buildZoneSummaryRows(activeRows));
     const columns = [
       ["Zona", (item) => escapeHtml(item.zone)],
-      ["Vehículos enturnados", (item) => escapeHtml(String(item.queued))],
-      ["Aptos calidad", (item) => escapeHtml(String(item.approved))],
-      ["Requieren arreglos", (item) => escapeHtml(String(item.rework))],
-      ["Rechazados del día", (item) => escapeHtml(String(item.rejectedToday))],
-      ["Sin revisar calidad", (item) => escapeHtml(String(item.pendingReview))],
+      ["Carros enturnados", (item) => escapeHtml(String(item.queued))],
     ];
     elements.queueTables.innerHTML = renderNamedTable(
-      "Resumen logístico por zona",
-      "Consolida por zona la cantidad enturnada y el avance actual de calidad para tomar decisiones rápidas.",
-      renderTable(columns, rows, "No hay vehículos activos para consolidar por zona."),
+      "Carros enturnados por zona",
+      "Aquí ves únicamente la cantidad de vehículos enturnados por cada zona de destino.",
+      renderTable(columns, rows, "No hay vehículos enturnados para consolidar por zona."),
       "Filtrar zona o cantidad en este resumen...",
     );
     return;
@@ -790,7 +780,7 @@ function renderCityQueues() {
 }
 
 function renderMastersTables(destinations, carriers, users, permissions) {
-  if (permissions?.canManageCatalogs) {
+  if (permissions?.canManageCatalogs || permissions?.canViewCatalogs) {
     elements.destinationsTable.innerHTML = renderTable(
       [
         ["Ciudad", (item) => escapeHtml(item.city)],
@@ -815,9 +805,9 @@ function renderMastersTables(destinations, carriers, users, permissions) {
     elements.carriersTable.innerHTML = `<div class="empty">Solo el administrador puede modificar transportadoras.</div>`;
   }
 
-  if (permissions?.canManageUsers) {
+  if (permissions?.canManageUsers || permissions?.canViewUsers) {
     elements.usersTable.innerHTML = renderTable(
-      [["Usuario", (item) => escapeHtml(item.username)], ["Nombre", (item) => escapeHtml(item.fullName)], ["Rol", (item) => translateRole(item.role)], ["Centro", (item) => escapeHtml(`${item.centerCode || ""} - ${item.centerName || ""}`.replace(/^ - /, ""))], ["Estado", (item) => item.active ? "Activo" : "Inactivo"], ["Acción", (item) => `<div class="actions"><button class="ghost small-action" data-user-edit="${item.id}" type="button">Editar</button></div>`]],
+      [["Usuario", (item) => escapeHtml(item.username)], ["Nombre", (item) => escapeHtml(item.fullName)], ["Rol", (item) => translateRole(item.role)], ["Centro", (item) => escapeHtml(`${item.centerCode || ""} - ${item.centerName || ""}`.replace(/^ - /, ""))], ["Estado", (item) => item.active ? "Activo" : "Inactivo"], ["Acción", (item) => permissions?.canManageUsers ? `<div class="actions"><button class="ghost small-action" data-user-edit="${item.id}" type="button">Editar</button></div>` : `<span class="muted-text">Solo lectura</span>`]],
       users,
       "No hay usuarios."
     );
@@ -828,6 +818,9 @@ function renderMastersTables(destinations, carriers, users, permissions) {
 }
 
 function renderCatalogActions(entityType, entityId, permissions) {
+  if (!permissions?.canManageCatalogs && permissions?.canViewCatalogs) {
+    return `<span class="muted-text">Solo lectura</span>`;
+  }
   if (!permissions?.canEditCatalogs && !permissions?.canDeleteCatalogs) {
     return `<span class="muted-text">Solo agregar</span>`;
   }
@@ -1441,23 +1434,8 @@ function filterVehicles(rows) {
   );
 }
 
-function buildZoneSummaryRows(groups) {
+function buildZoneSummaryRows(rows) {
   const summary = new Map();
-
-  const upsertZoneEntry = (zone) => {
-    const key = String(zone || "").trim();
-    if (!key) return null;
-    const current = summary.get(key) || {
-      zone: key,
-      queued: 0,
-      approved: 0,
-      rework: 0,
-      rejectedToday: 0,
-      pendingReview: 0,
-    };
-    summary.set(key, current);
-    return current;
-  };
 
   const extractZones = (row) => {
     const zones = new Set(
@@ -1471,36 +1449,16 @@ function buildZoneSummaryRows(groups) {
     return Array.from(zones);
   };
 
-  (groups?.queued || []).forEach((row) => {
+  (rows || []).forEach((row) => {
     extractZones(row).forEach((zone) => {
-      const entry = upsertZoneEntry(zone);
-      if (!entry) return;
+      const key = String(zone || "").trim();
+      if (!key) return;
+      const entry = summary.get(key) || {
+        zone: key,
+        queued: 0,
+      };
       entry.queued += 1;
-      if (row.qualityStatus === "APPROVED") {
-        entry.approved += 1;
-      } else if (row.qualityStatus === "REWORK") {
-        entry.rework += 1;
-      } else if (["PENDING", "IN_PROGRESS"].includes(row.qualityStatus || "PENDING")) {
-        entry.pendingReview += 1;
-      }
-    });
-  });
-
-  (groups?.assigned || []).forEach((row) => {
-    if (row.qualityStatus !== "APPROVED") return;
-    extractZones(row).forEach((zone) => {
-      const entry = upsertZoneEntry(zone);
-      if (!entry) return;
-      entry.approved += 1;
-    });
-  });
-
-  (groups?.rejected || []).forEach((row) => {
-    if (!isTodayInBogota(row.rejectedAt || row.latestInspection?.reviewedAt)) return;
-    extractZones(row).forEach((zone) => {
-      const entry = upsertZoneEntry(zone);
-      if (!entry) return;
-      entry.rejectedToday += 1;
+      summary.set(key, entry);
     });
   });
 
@@ -1511,33 +1469,10 @@ function filterZoneSummaryRows(rows) {
   const query = elements.searchInput.value.trim().toLowerCase();
   if (!query) return rows || [];
   return (rows || []).filter((row) =>
-    [row.zone, row.queued, row.approved, row.rework, row.rejectedToday, row.pendingReview]
+    [row.zone, row.queued]
       .filter((value) => value !== null && value !== undefined)
       .some((value) => String(value).toLowerCase().includes(query))
   );
-}
-
-function isTodayInBogota(value) {
-  if (!value) return false;
-  try {
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) return false;
-    const today = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "America/Bogota",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).format(new Date());
-    const target = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "America/Bogota",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).format(parsed);
-    return today === target;
-  } catch {
-    return false;
-  }
 }
 
 function filterHistoryRows(rows) {
@@ -1971,6 +1906,7 @@ function translateRole(role) {
     ADMIN: "Administrador general",
     LOGISTICA: "Logística",
     CALIDAD: "Calidad",
+    VISUALIZADOR: "Visualizador",
   }[role] || role;
 }
 

@@ -1,11 +1,13 @@
 package com.diana.enturnamientocalidad.ui
 
+import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
 import android.util.Base64
 import android.webkit.MimeTypeMap
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Arrangement
@@ -135,16 +137,20 @@ fun InspectionScreen(
             inspection?.finalDecision ?: if (vehicle?.qualityStatus == "REWORK") "REWORK" else "APPROVED",
         )
     }
-    var pickerTarget by remember { mutableStateOf<String?>(null) }
-    val picker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 5),
-    ) { uris ->
-        val key = pickerTarget ?: return@rememberLauncherForActivityResult
-        evidenceUris[key]?.apply {
-            clear()
-            addAll(uris)
+    var captureTarget by remember { mutableStateOf<String?>(null) }
+    var pendingCaptureUri by remember { mutableStateOf<Uri?>(null) }
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture(),
+    ) { success ->
+        val target = captureTarget
+        val uri = pendingCaptureUri
+        if (success && target != null && uri != null) {
+            evidenceUris[target]?.add(uri)
+        } else if (uri != null) {
+            context.contentResolver.delete(uri, null, null)
         }
-        pickerTarget = null
+        captureTarget = null
+        pendingCaptureUri = null
     }
 
     Column(
@@ -260,10 +266,15 @@ fun InspectionScreen(
                         localValidationError = null
                     },
                     onPickEvidence = {
-                        pickerTarget = definition.key
-                        picker.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                        )
+                        val captureUri = createChecklistCameraUri(context, vehicle.plate, definition.key)
+                        if (captureUri == null) {
+                            localValidationError = "No se pudo abrir la cámara para ${definition.label}."
+                        } else {
+                            localValidationError = null
+                            captureTarget = definition.key
+                            pendingCaptureUri = captureUri
+                            cameraLauncher.launch(captureUri)
+                        }
                     },
                 )
             }
@@ -456,11 +467,11 @@ private fun ChecklistCard(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text(
-                            text = "Evidencias previas: $existingEvidenceCount | Nuevas seleccionadas: $selectedEvidenceCount",
+                            text = "Evidencias previas: $existingEvidenceCount | Nuevas tomadas: $selectedEvidenceCount",
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Button(onClick = onPickEvidence) {
-                            Text("Adjuntar fotos")
+                            Text(if (selectedEvidenceCount > 0) "Tomar otra foto" else "Abrir cámara")
                         }
                     }
                 }
@@ -510,4 +521,18 @@ private fun uriToDataUrl(context: Context, uri: Uri): String {
         "image/${extension.ifBlank { "jpeg" }}"
     }
     return "data:$normalizedMime;base64,$encoded"
+}
+
+private fun createChecklistCameraUri(context: Context, plate: String, checklistKey: String): Uri? {
+    val safePlate = plate.trim().ifBlank { "vehiculo" }.replace(Regex("[^A-Za-z0-9]+"), "_").trim('_')
+    val safeKey = checklistKey.trim().ifBlank { "evidencia" }.replace(Regex("[^A-Za-z0-9]+"), "_").trim('_')
+    val timestamp = System.currentTimeMillis()
+    val values = ContentValues().apply {
+        put(MediaStore.Images.Media.DISPLAY_NAME, "control_calidad_${safePlate}_${safeKey}_$timestamp.jpg")
+        put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            put(MediaStore.Images.Media.RELATIVE_PATH, "DCIM/ControlCalidad")
+        }
+    }
+    return context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
 }
