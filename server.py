@@ -1145,17 +1145,45 @@ def translate_checklist_status(status: str, poison: str = "") -> str:
     return "Pendiente"
 
 
+def truncate_text(value: Any, limit: int) -> str:
+    text = clean_text(value)
+    if len(text) <= limit:
+        return text
+    return f"{text[: max(limit - 3, 0)]}..."
+
+
+def draw_fit_text(pdf: Any, text: str, x: float, y: float, max_width: float, font_name: str = "Helvetica", font_size: float = 8) -> None:
+    content = clean_text(text)
+    if not content:
+        return
+    size = font_size
+    while size >= 5:
+        pdf.setFont(font_name, size)
+        if pdf.stringWidth(content, font_name, size) <= max_width:
+            pdf.drawString(x, y, content)
+            return
+        size -= 0.4
+    pdf.setFont(font_name, 5)
+    clipped = content
+    while clipped and pdf.stringWidth(f"{clipped}...", font_name, 5) > max_width:
+        clipped = clipped[:-1]
+    pdf.drawString(x, y, f"{clipped}..." if clipped else "")
+
+
+def draw_center_mark(pdf: Any, mark: str, x: float, y: float, font_name: str = "Helvetica-Bold", font_size: float = 9) -> None:
+    pdf.setFont(font_name, font_size)
+    width = pdf.stringWidth(mark, font_name, font_size)
+    pdf.drawString(x - (width / 2), y, mark)
+
+
 def build_history_pdf(records: List[Dict[str, Any]]) -> bytes:
     try:
         from pypdf import PdfReader, PdfWriter
-        from reportlab.lib import colors
         from reportlab.lib.pagesizes import landscape, letter
-        from reportlab.lib.utils import ImageReader
         from reportlab.pdfgen import canvas
     except Exception as exc:
         raise AppError(f"No se pudo cargar el generador PDF: {exc}", 500) from exc
 
-    checklist_rows = CHECKLIST_EXPORT_ROWS
     writer = PdfWriter()
     template_page = None
     page_width, page_height = landscape(letter)
@@ -1177,62 +1205,83 @@ def build_history_pdf(records: List[Dict[str, Any]]) -> bytes:
             ]
         ) or "-"
         carrier_text = f"{record.get('carrierCode') or ''} {record.get('carrier') or '-'}".strip()
-        if PDF_LOGO_PATH.exists():
-            pdf.drawImage(ImageReader(str(PDF_LOGO_PATH)), 18, page_height - 72, width=95, height=48, mask="auto")
-        pdf.setFont("Helvetica-Bold", 12)
-        pdf.drawCentredString(page_width / 2, page_height - 28, "DIANA CORPORACIÓN S.A.S")
-        pdf.setFont("Helvetica-Bold", 11)
-        pdf.drawCentredString(page_width / 2, page_height - 44, "ASEGURAR CALIDAD DEL PRODUCTO")
-        pdf.drawCentredString(page_width / 2, page_height - 58, "INSPECCIÓN Y FUMIGACIÓN DE VEHÍCULOS")
-        pdf.setFont("Helvetica", 9)
-        pdf.drawString(18, page_height - 88, f"Fecha: {record.get('qualityReviewedDate') or record.get('createdDate') or '-'}")
-        pdf.drawString(18, page_height - 104, f"Hora: {record.get('qualityReviewedTime') or record.get('createdTime') or '-'}")
-        pdf.drawString(150, page_height - 88, f"Conductor: {record.get('driverName') or '-'}")
-        pdf.drawString(150, page_height - 104, f"Placa: {record.get('plate') or '-'}")
-        pdf.drawString(410, page_height - 88, f"Destino: {destinations_text}")
-        pdf.drawString(410, page_height - 104, f"Transportadora: {carrier_text}")
-        pdf.drawString(page_width - 126, page_height - 46, "FO-CL-021")
-        pdf.setFont("Helvetica-Bold", 8)
-
-        top = page_height - 126
-        row_height = 22
-        columns = [18, 260, 338, 430, page_width - 20]
-        headers = ["Concepto", "Resultado", "Veneno", "Evidencias / notas"]
-        pdf.setFillColor(colors.HexColor("#edf4ff"))
-        pdf.rect(columns[0], top, columns[-1] - columns[0], row_height, stroke=1, fill=1)
-        pdf.setFillColor(colors.black)
-        for idx_header, header in enumerate(headers):
-            pdf.drawString(columns[idx_header] + 6, top + 7, header)
-
-        pdf.setFont("Helvetica", 8)
-        current_y = top - row_height
         checklist = record.get("qualityChecklist") or {}
-        for item_key, item_label in checklist_rows:
-            item = checklist.get(item_key) or {}
-            pdf.rect(columns[0], current_y, columns[-1] - columns[0], row_height, stroke=1, fill=0)
-            for divider in columns[1:-1]:
-                pdf.line(divider, current_y, divider, current_y + row_height)
-            evidences = item.get("evidences") or []
-            pdf.drawString(columns[0] + 6, current_y + 7, item_label[:52])
-            pdf.drawString(columns[1] + 6, current_y + 7, translate_checklist_status(item.get("status", ""), item.get("poison", ""))[:17])
-            pdf.drawString(columns[2] + 6, current_y + 7, clean_text(item.get("poison"))[:14] or "-")
-            pdf.drawString(columns[3] + 6, current_y + 7, f"{len(evidences)} foto(s)" if evidences else "-")
-            current_y -= row_height
+        row_y = 307
+        date_y = 352
+        field_font = 7.4
 
-        info_top = current_y - 8
-        pdf.setFont("Helvetica-Bold", 8)
-        pdf.drawString(18, info_top, "Decisión final:")
-        pdf.drawString(170, info_top, "Observaciones / medida correctiva:")
-        pdf.drawString(490, info_top, "Responsable inspección:")
-        pdf.setFont("Helvetica", 8)
-        pdf.drawString(18, info_top - 14, record.get("qualityDecision") or record.get("qualityStatus") or "-")
-        observations = clean_text(record.get("qualityObservations") or record.get("qualityFindingsSummary") or record.get("rejectionReason") or "-")
-        pdf.drawString(170, info_top - 14, observations[:56])
-        if len(observations) > 56:
-            pdf.drawString(170, info_top - 28, observations[56:112])
-        pdf.drawString(490, info_top - 14, record.get("qualityInspectorName") or "-")
-        pdf.drawString(18, info_top - 40, f"Registro {index} de {len(records)}")
-        pdf.drawString(170, info_top - 40, f"Turnos por ciudad: {', '.join([f'{city}: {turn}' for city, turn in (record.get('cityTurns') or {}).items()]) or '-'}")
+        # Campos superiores
+        draw_fit_text(pdf, record.get("qualityReviewedDate") or record.get("createdDate") or "-", 36, date_y, 120, font_size=9)
+        draw_fit_text(pdf, record.get("qualityReviewedTime") or record.get("createdTime") or "-", 8, row_y, 28, font_size=7)
+        draw_fit_text(pdf, record.get("driverName") or "-", 44, row_y, 54, font_size=6.5)
+        draw_fit_text(pdf, record.get("plate") or "-", 104, row_y, 44, font_size=7.5)
+        draw_fit_text(pdf, destinations_text, 154, row_y, 54, font_size=6.4)
+
+        # Columnas del checklist
+        column_map = {
+            "foodLegend": 226,
+            "cleanliness": 266,
+            "strangeSmells": 306,
+            "stains": 346,
+            "damage": 386,
+            "humidity": 426,
+            "infestation": 471,
+            "bulkWallsFloor": 518,
+            "containerHoles": 563,
+            "fumigationIn": 603,
+            "fumigationOut": 638,
+        }
+        for key, center_x in column_map.items():
+            item = checklist.get(key) or {}
+            status = clean_text(item.get("status")).upper()
+            if status == "CUMPLE":
+                draw_center_mark(pdf, "C", center_x, row_y, font_size=8)
+            elif status == "NO_CUMPLE":
+                draw_center_mark(pdf, "NC", center_x, row_y, font_size=7)
+            elif status == "NO_APLICA":
+                draw_center_mark(pdf, "NA", center_x, row_y, font_size=7)
+            elif status == "SI":
+                draw_center_mark(pdf, "SI", center_x, row_y, font_size=7)
+            elif status == "NO":
+                draw_center_mark(pdf, "NO", center_x, row_y, font_size=7)
+
+        decision = clean_text(record.get("qualityDecision") or record.get("qualityStatus")).upper()
+        if decision == QUALITY_APPROVED:
+            draw_center_mark(pdf, "X", 673, row_y, font_size=10)
+        else:
+            draw_center_mark(pdf, "X", 708, row_y, font_size=10)
+
+        observations = clean_text(record.get("qualityObservations") or record.get("qualityFindingsSummary") or record.get("rejectionReason") or "")
+        draw_fit_text(pdf, observations, 732, row_y + 8, 72, font_size=5.8)
+        draw_fit_text(pdf, record.get("qualityInspectorName") or "-", 809, row_y + 8, 28, font_size=5.6)
+
+        # Bloque inferior de decisiones
+        bottom_y = 92
+        decision_label = {
+            QUALITY_APPROVED: "ACEPTADO",
+            QUALITY_REWORK: "REQUIERE ARREGLOS",
+            QUALITY_REJECTED: "RECHAZADO",
+            "PENDING": "PENDIENTE",
+        }.get(decision or "PENDING", decision or "PENDIENTE")
+        draw_fit_text(pdf, decision_label, 18, bottom_y + 16, 120, font_name="Helvetica-Bold", font_size=8)
+        draw_fit_text(pdf, observations or "-", 170, bottom_y + 16, 300, font_size=7)
+        draw_fit_text(pdf, record.get("qualityInspectorName") or "-", 490, bottom_y + 16, 190, font_size=7)
+
+        # Producto de fumigación
+        fumigation_values = []
+        for key in ("fumigationIn", "fumigationOut"):
+            poison = clean_text((checklist.get(key) or {}).get("poison"))
+            if poison:
+                fumigation_values.append(poison)
+        product_text = ", ".join(dict.fromkeys(fumigation_values)) or "-"
+        draw_fit_text(pdf, product_text, 18, 38, 180, font_size=7)
+        draw_fit_text(pdf, "-", 210, 38, 88, font_size=7)
+        draw_fit_text(pdf, "-", 312, 38, 134, font_size=7)
+        draw_fit_text(pdf, "-", 462, 38, 92, font_size=7)
+
+        # Responsable de verificación y leyenda
+        draw_fit_text(pdf, record.get("qualityInspectorName") or "-", 120, 2, 200, font_size=8)
+        draw_fit_text(pdf, f"Registro {index} de {len(records)}", 640, 2, 120, font_size=7)
         pdf.showPage()
         pdf.save()
         buffer.seek(0)
