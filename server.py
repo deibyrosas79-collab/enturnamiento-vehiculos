@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import html
 import hashlib
 import hmac
 import io
@@ -9,6 +10,7 @@ import json
 import math
 import mimetypes
 import os
+import re
 import secrets
 import uuid
 
@@ -191,7 +193,7 @@ def clean_text(value: object) -> str:
 
 
 def normalize_plate(value: object) -> str:
-    return clean_text(value).upper().replace(" ", "").replace("-", "")
+    return re.sub(r"[^A-Z0-9]", "", clean_text(value).upper())
 
 
 def parse_float(value: object) -> Optional[float]:
@@ -1176,23 +1178,94 @@ def draw_center_mark(pdf: Any, mark: str, x: float, y: float, font_name: str = "
     pdf.drawString(x - (width / 2), y, mark)
 
 
+def _escape_pdf_text(value: Any) -> str:
+    return html.escape(clean_text(value or "-"))
+
+
+def _history_check_short(checklist: Dict[str, Any], key: str) -> str:
+    item = checklist.get(key) or {}
+    status = clean_text(item.get("status")).upper()
+    return {
+        "CUMPLE": "C",
+        "NO_CUMPLE": "NC",
+        "NO_APLICA": "NA",
+        "SI": "SI",
+        "NO": "NO",
+    }.get(status, "-")
+
+
+def _history_decision_marks(record: Dict[str, Any]) -> Tuple[str, str]:
+    decision = clean_text(record.get("qualityDecision") or record.get("qualityStatus")).upper()
+    if decision == QUALITY_APPROVED:
+        return "X", ""
+    if decision in {QUALITY_REJECTED, QUALITY_REWORK}:
+        return "", "X"
+    return "", ""
+
+
 def build_history_pdf(records: List[Dict[str, Any]]) -> bytes:
     try:
-        from pypdf import PdfReader, PdfWriter
-        from reportlab.lib.pagesizes import landscape, letter
-        from reportlab.pdfgen import canvas
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import landscape, legal
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
     except Exception as exc:
         raise AppError(f"No se pudo cargar el generador PDF: {exc}", 500) from exc
 
-    writer = PdfWriter()
-    template_page = None
-    page_width, page_height = landscape(letter)
-    if PDF_TEMPLATE_PATH.exists():
-        template_reader = PdfReader(str(PDF_TEMPLATE_PATH))
-        if template_reader.pages:
-            template_page = template_reader.pages[0]
-            page_width = float(template_page.mediabox.width)
-            page_height = float(template_page.mediabox.height)
+    output = io.BytesIO()
+    page_width, page_height = landscape(legal)
+    margin = 8 * mm
+    doc = SimpleDocTemplate(
+        output,
+        pagesize=(page_width, page_height),
+        leftMargin=margin,
+        rightMargin=margin,
+        topMargin=7 * mm,
+        bottomMargin=7 * mm,
+    )
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("PdfTitle", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=10.5, leading=12, alignment=1)
+    subtitle_style = ParagraphStyle("PdfSubtitle", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=8.2, leading=9.4, alignment=1)
+    cell_style = ParagraphStyle("PdfCell", parent=styles["Normal"], fontName="Helvetica", fontSize=5.1, leading=5.8, alignment=1)
+    cell_left_style = ParagraphStyle("PdfCellLeft", parent=cell_style, alignment=0)
+    header_cell_style = ParagraphStyle("PdfHeader", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=5.4, leading=6, alignment=1)
+    section_style = ParagraphStyle("PdfSection", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=7.4, leading=8.4)
+    note_style = ParagraphStyle("PdfNote", parent=styles["Normal"], fontName="Helvetica", fontSize=6.1, leading=7)
+
+    def p(value: Any, style: ParagraphStyle) -> Paragraph:
+        return Paragraph(_escape_pdf_text(value), style)
+
+    def build_header() -> Table:
+        logo_flowable: Any = ""
+        if PDF_LOGO_PATH.exists():
+            logo_flowable = Image(str(PDF_LOGO_PATH), width=30 * mm, height=12 * mm, kind="proportional")
+        center_width = page_width - (margin * 2) - (38 * mm) - (24 * mm)
+        title_block = Table(
+            [
+                [Paragraph("DIANA CORPORACIÓN S.A.S", title_style)],
+                [Paragraph("ASEGURAR CALIDAD DEL PRODUCTO", subtitle_style)],
+                [Paragraph("INSPECCIÓN, DESINFECCIÓN Y FUMIGACIÓN DE VEHÍCULOS", subtitle_style)],
+            ],
+            colWidths=[center_width],
+        )
+        title_block.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.55, colors.black)]))
+        right_box = Table(
+            [[Paragraph("FO-CL-021", subtitle_style)], [Paragraph("V.7 Octubre 2024", note_style)]],
+            colWidths=[24 * mm],
+        )
+        right_box.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.55, colors.black)]))
+        header = Table([[logo_flowable, title_block, right_box]], colWidths=[38 * mm, center_width, 24 * mm])
+        header.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.65, colors.black),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (0, 0), (0, 0), "CENTER"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 2),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+            ("TOPPADDING", (0, 0), (-1, -1), 2),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ]))
+        return header
 
     for index, record in enumerate(records, start=1):
         buffer = io.BytesIO()
@@ -1296,6 +1369,163 @@ def build_history_pdf(records: List[Dict[str, Any]]) -> bytes:
 
     output = io.BytesIO()
     writer.write(output)
+    return output.getvalue()
+
+
+def build_history_pdf(records: List[Dict[str, Any]]) -> bytes:
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import landscape, legal
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    except Exception as exc:
+        raise AppError(f"No se pudo cargar el generador PDF: {exc}", 500) from exc
+
+    output = io.BytesIO()
+    page_width, page_height = landscape(legal)
+    margin = 8 * mm
+    doc = SimpleDocTemplate(
+        output,
+        pagesize=(page_width, page_height),
+        leftMargin=margin,
+        rightMargin=margin,
+        topMargin=7 * mm,
+        bottomMargin=7 * mm,
+    )
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("PdfTitleModern", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=10.5, leading=12, alignment=1)
+    subtitle_style = ParagraphStyle("PdfSubtitleModern", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=8.2, leading=9.4, alignment=1)
+    cell_style = ParagraphStyle("PdfCellModern", parent=styles["Normal"], fontName="Helvetica", fontSize=5.1, leading=5.8, alignment=1)
+    cell_left_style = ParagraphStyle("PdfCellLeftModern", parent=cell_style, alignment=0)
+    header_cell_style = ParagraphStyle("PdfHeaderModern", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=5.4, leading=6, alignment=1)
+    section_style = ParagraphStyle("PdfSectionModern", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=7.4, leading=8.4)
+    note_style = ParagraphStyle("PdfNoteModern", parent=styles["Normal"], fontName="Helvetica", fontSize=6.1, leading=7)
+
+    def p(value: Any, style: ParagraphStyle) -> Paragraph:
+        return Paragraph(_escape_pdf_text(value), style)
+
+    def build_header() -> Table:
+        logo_flowable: Any = ""
+        if PDF_LOGO_PATH.exists():
+            logo_flowable = Image(str(PDF_LOGO_PATH), width=30 * mm, height=12 * mm, kind="proportional")
+        center_width = page_width - (margin * 2) - (38 * mm) - (24 * mm)
+        title_block = Table(
+            [
+                [Paragraph("DIANA CORPORACIÓN S.A.S", title_style)],
+                [Paragraph("ASEGURAR CALIDAD DEL PRODUCTO", subtitle_style)],
+                [Paragraph("INSPECCIÓN, DESINFECCIÓN Y FUMIGACIÓN DE VEHÍCULOS", subtitle_style)],
+            ],
+            colWidths=[center_width],
+        )
+        title_block.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.55, colors.black)]))
+        right_box = Table(
+            [[Paragraph("FO-CL-021", subtitle_style)], [Paragraph("V.7 Octubre 2024", note_style)]],
+            colWidths=[24 * mm],
+        )
+        right_box.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.55, colors.black)]))
+        header = Table([[logo_flowable, title_block, right_box]], colWidths=[38 * mm, center_width, 24 * mm])
+        header.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.65, colors.black),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (0, 0), (0, 0), "CENTER"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 2),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+            ("TOPPADDING", (0, 0), (-1, -1), 2),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ]))
+        return header
+
+    rows: List[List[Any]] = [[
+        p("Hora", header_cell_style), p("Conductor", header_cell_style), p("Placa", header_cell_style), p("Destino", header_cell_style),
+        p("Leyenda", header_cell_style), p("Suciedad", header_cell_style), p("Olores", header_cell_style), p("Manchas", header_cell_style),
+        p("Averías", header_cell_style), p("Humedad", header_cell_style), p("Infestación", header_cell_style), p("Pared/Piso", header_cell_style),
+        p("Trompos", header_cell_style), p("Estacas", header_cell_style), p("Fum ING", header_cell_style), p("Fum SAL", header_cell_style),
+        p("Aceptado", header_cell_style), p("Rech./Arr.", header_cell_style), p("Medida correctiva", header_cell_style), p("Responsable", header_cell_style),
+    ]]
+    fumigation_rows: List[List[Any]] = [[
+        p("Placa", header_cell_style), p("Etapa", header_cell_style), p("Producto aplicado", header_cell_style), p("Responsable", header_cell_style)
+    ]]
+
+    for record in records:
+        checklist = record.get("qualityChecklist") or {}
+        destinations_text = ", ".join(
+            f"{item.get('city', '')} - {item.get('zone', '')}".strip(" -")
+            for item in record.get("destinations", [])
+            if item.get("city") or item.get("zone")
+        ) or "-"
+        reviewed_local = iso_to_local(record.get("qualityReviewedAt") or record.get("createdAt"))
+        accepted_mark, rejected_mark = _history_decision_marks(record)
+        observations = clean_text(record.get("qualityObservations") or record.get("qualityFindingsSummary") or record.get("rejectionReason") or "-")
+        rows.append([
+            p(reviewed_local.strftime("%H:%M") if reviewed_local else "-", cell_style),
+            p(record.get("driverName"), cell_left_style),
+            p(record.get("plate"), cell_style),
+            p(destinations_text, cell_left_style),
+            p(_history_check_short(checklist, "foodLegend"), cell_style),
+            p(_history_check_short(checklist, "cleanliness"), cell_style),
+            p(_history_check_short(checklist, "strangeSmells"), cell_style),
+            p(_history_check_short(checklist, "stains"), cell_style),
+            p(_history_check_short(checklist, "damage"), cell_style),
+            p(_history_check_short(checklist, "humidity"), cell_style),
+            p(_history_check_short(checklist, "infestation"), cell_style),
+            p(_history_check_short(checklist, "bulkWallsFloor"), cell_style),
+            p(_history_check_short(checklist, "containerHoles"), cell_style),
+            p(_history_check_short(checklist, "woodenStakesPestFree"), cell_style),
+            p(_history_check_short(checklist, "fumigationIn"), cell_style),
+            p(_history_check_short(checklist, "fumigationOut"), cell_style),
+            p(accepted_mark or "-", cell_style),
+            p(rejected_mark or "-", cell_style),
+            p(observations, cell_left_style),
+            p(record.get("qualityInspectorName"), cell_left_style),
+        ])
+        poison_in = clean_text((checklist.get("fumigationIn") or {}).get("poison"))
+        poison_out = clean_text((checklist.get("fumigationOut") or {}).get("poison"))
+        if poison_in:
+            fumigation_rows.append([p(record.get("plate"), cell_style), p("Ingreso", cell_style), p(poison_in, cell_left_style), p(record.get("qualityInspectorName"), cell_left_style)])
+        if poison_out:
+            fumigation_rows.append([p(record.get("plate"), cell_style), p("Salida", cell_style), p(poison_out, cell_left_style), p(record.get("qualityInspectorName"), cell_left_style)])
+
+    if len(fumigation_rows) == 1:
+        fumigation_rows.append([p("-", cell_style), p("-", cell_style), p("No se registró producto de fumigación.", cell_left_style), p("-", cell_left_style)])
+
+    col_widths_mm = [12, 28, 16, 20, 10, 10, 10, 10, 10, 10, 12, 12, 11, 11, 10, 10, 11, 12, 29, 22]
+    raw_widths = [item * mm for item in col_widths_mm]
+    scaled_widths = [value * ((page_width - (margin * 2)) / sum(raw_widths)) for value in raw_widths]
+    main_table = Table(rows, colWidths=scaled_widths, repeatRows=1)
+    main_table.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.black),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eef3fb")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 1.6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 1.6),
+        ("TOPPADDING", (0, 0), (-1, -1), 1.2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 1.2),
+    ]))
+    fumigation_table = Table(fumigation_rows, colWidths=[20 * mm, 20 * mm, 120 * mm, 45 * mm], repeatRows=1)
+    fumigation_table.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.black),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f4f7fb")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 2),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+        ("TOPPADDING", (0, 0), (-1, -1), 1.4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 1.4),
+    ]))
+    story: List[Any] = [
+        build_header(),
+        Spacer(1, 2.5 * mm),
+        Paragraph(f"Fecha de impresión: {now_local().strftime('%Y-%m-%d %H:%M')} · Registros: {len(records)}", note_style),
+        Spacer(1, 2 * mm),
+        main_table,
+        Spacer(1, 3 * mm),
+        Paragraph("INFORMACIÓN DEL PRODUCTO UTILIZADO PARA FUMIGACIÓN", section_style),
+        Spacer(1, 1.2 * mm),
+        fumigation_table,
+        Spacer(1, 2 * mm),
+        Paragraph("C: Cumple · NC: No cumple · NA: No aplica · Rech./Arr.: rechazado o requiere arreglos", note_style),
+    ]
+    doc.build(story)
     return output.getvalue()
 
 
@@ -1523,6 +1753,33 @@ def compact_queue(db: sqlite3.Connection) -> None:
             db.execute("UPDATE vehicles SET queue_position = ? WHERE id = ?", (index, row["id"]))
 
 
+def find_plate_registration_block(db: Any, plate: str, center_id: str) -> Optional[str]:
+    rows = db.execute(
+        """
+        SELECT plate, status, quality_status, assigned_at, created_at
+        FROM vehicles
+        WHERE center_id = ? AND status IN ('QUEUED', 'ASSIGNED')
+        ORDER BY created_at DESC
+        """,
+        (center_id,),
+    ).fetchall()
+    normalized_plate = normalize_plate(plate)
+    today_local = now_local().date()
+    for row in rows:
+        if normalize_plate(row["plate"]) != normalized_plate:
+            continue
+        if row["status"] == QUEUE_STATUS_ACTIVE:
+            return f"La placa {normalized_plate} ya tiene un proceso abierto de turno o revisión de calidad."
+        assigned_local = iso_to_local(row["assigned_at"] or row["created_at"])
+        if row["status"] == QUEUE_STATUS_ASSIGNED and assigned_local and assigned_local.date() >= today_local:
+            next_day = (assigned_local + timedelta(days=1)).strftime("%Y-%m-%d")
+            return (
+                f"La placa {normalized_plate} ya tuvo viaje asignado hoy. "
+                f"Solo podrá volver a enturnarse a partir del día siguiente ({next_day})."
+            )
+    return None
+
+
 def create_vehicle(
     payload: Dict[str, Any],
     registration_channel: str,
@@ -1581,12 +1838,9 @@ def create_vehicle(
             raise AppError("La transportadora seleccionada no existe.", 404)
         queue_group = queue_group_for_carrier_code(carrier["code"])
 
-        duplicate = db.execute(
-            "SELECT id FROM vehicles WHERE plate = ? AND status = 'QUEUED' LIMIT 1",
-            (plate,),
-        ).fetchone()
-        if duplicate:
-            raise AppError(f"La placa {plate} ya esta enturnada.", 409)
+        plate_block_reason = find_plate_registration_block(db, plate, center["id"])
+        if plate_block_reason:
+            raise AppError(plate_block_reason, 409)
 
         next_position = db.execute(
             """
