@@ -169,6 +169,8 @@ const elements = {
 };
 
 let toastTimer;
+let appStatePollTimer;
+let lastSeenQueuedIds = new Set();
 
 bootstrap();
 
@@ -250,12 +252,24 @@ async function loadSession() {
   }
 }
 
-async function refreshAppState() {
+async function refreshAppState(options = {}) {
+  const { silent = false, notifyNewQueued = false } = options;
   const data = await request("/app-state");
+  const previousQueuedIds = new Set(lastSeenQueuedIds);
   state.user = data.user;
   state.appState = data;
-  showApp();
-  renderApp();
+  lastSeenQueuedIds = collectQueuedVehicleIds(data);
+  if (!silent) {
+    showApp();
+    renderApp();
+  } else if (!hasBlockingModalOpen()) {
+    renderApp();
+  }
+  if (notifyNewQueued && previousQueuedIds.size) {
+    notifyAboutNewQueuedVehicles(collectNewQueuedVehicles(data, previousQueuedIds));
+  }
+  startAppStatePolling();
+  ensureBrowserNotificationPermission();
 }
 
 async function submitLogin(event) {
@@ -274,6 +288,9 @@ async function submitLogin(event) {
     elements.loginForm.reset();
     showApp();
     renderApp();
+    lastSeenQueuedIds = collectQueuedVehicleIds(data);
+    startAppStatePolling();
+    ensureBrowserNotificationPermission();
     showToast(`Bienvenido, ${data.user.fullName}.`);
   } catch (error) {
     showToast(error.message);
@@ -282,6 +299,8 @@ async function submitLogin(event) {
 
 async function logout() {
   await request("/auth/logout", { method: "POST" }).catch(() => {});
+  stopAppStatePolling();
+  lastSeenQueuedIds = new Set();
   state.user = null;
   state.appState = null;
   showAuth();
@@ -295,6 +314,77 @@ function showAuth() {
 function showApp() {
   elements.authScreen.classList.add("hidden");
   elements.appShell.classList.remove("hidden");
+}
+
+function startAppStatePolling() {
+  stopAppStatePolling();
+  if (!state.user) return;
+  appStatePollTimer = window.setInterval(async () => {
+    if (!state.user) return;
+    try {
+      await refreshAppState({ silent: true, notifyNewQueued: true });
+    } catch {
+      // Mantiene la sesión visual actual aunque falle una sincronización puntual.
+    }
+  }, 30000);
+}
+
+function stopAppStatePolling() {
+  if (appStatePollTimer) {
+    window.clearInterval(appStatePollTimer);
+    appStatePollTimer = null;
+  }
+}
+
+function hasBlockingModalOpen() {
+  return [
+    elements.rejectModal,
+    elements.qualityModal,
+    elements.suitabilityHistoryModal,
+    elements.vehicleEditModal,
+    elements.mediaPreviewModal,
+  ].some((modal) => modal && !modal.classList.contains("hidden"));
+}
+
+function collectQueuedVehicles(data = state.appState) {
+  return [
+    ...((data?.queueGroups?.general) || []),
+    ...((data?.queueGroups?.dianaAgricola) || []),
+  ];
+}
+
+function collectQueuedVehicleIds(data = state.appState) {
+  return new Set(collectQueuedVehicles(data).map((item) => item.id));
+}
+
+function collectNewQueuedVehicles(data, previousQueuedIds) {
+  return collectQueuedVehicles(data).filter((item) => !previousQueuedIds.has(item.id));
+}
+
+function ensureBrowserNotificationPermission() {
+  if (!("Notification" in window)) return;
+  if (Notification.permission !== "default") return;
+  Notification.requestPermission().catch(() => {});
+}
+
+function notifyAboutNewQueuedVehicles(vehicles) {
+  if (!vehicles?.length) return;
+  const firstVehicle = vehicles[0];
+  const message = vehicles.length === 1
+    ? `Nuevo enturnado: ${firstVehicle.plate} · ${firstVehicle.driverName}`
+    : `${vehicles.length} vehículos nuevos entraron en turno.`;
+  showToast(message);
+  if ("Notification" in window && Notification.permission === "granted") {
+    try {
+      new Notification("Nuevo vehículo enturnado", {
+        body: vehicles.length === 1
+          ? `Placa ${firstVehicle.plate} · ${firstVehicle.driverName}`
+          : `${vehicles.length} vehículos nuevos disponibles en logística.`,
+      });
+    } catch {
+      // El toast ya cubre la notificación dentro de la página.
+    }
+  }
 }
 
 function switchView(view) {
@@ -527,6 +617,35 @@ function renderQueueTables() {
       ),
     ].join("");
     bindQueueActions();
+    return;
+  }
+
+  if (state.queueTab === "zones") {
+    const activeRows = [
+      ...(state.appState.queueGroups?.general || []),
+      ...(state.appState.queueGroups?.dianaAgricola || []),
+    ];
+    const rows = filterZoneSummaryRows(
+      buildZoneSummaryRows({
+        queued: activeRows,
+        assigned: state.appState.assigned || [],
+        rejected: state.appState.rejected || [],
+      }),
+    );
+    const columns = [
+      ["Zona", (item) => escapeHtml(item.zone)],
+      ["Vehículos enturnados", (item) => escapeHtml(String(item.queued))],
+      ["Aptos calidad", (item) => escapeHtml(String(item.approved))],
+      ["Requieren arreglos", (item) => escapeHtml(String(item.rework))],
+      ["Rechazados del día", (item) => escapeHtml(String(item.rejectedToday))],
+      ["Sin revisar calidad", (item) => escapeHtml(String(item.pendingReview))],
+    ];
+    elements.queueTables.innerHTML = renderNamedTable(
+      "Resumen logístico por zona",
+      "Consolida por zona la cantidad enturnada y el avance actual de calidad para tomar decisiones rápidas.",
+      renderTable(columns, rows, "No hay vehículos activos para consolidar por zona."),
+      "Filtrar zona o cantidad en este resumen...",
+    );
     return;
   }
 
@@ -1320,6 +1439,105 @@ function filterVehicles(rows) {
       .filter(Boolean)
       .some((value) => String(value).toLowerCase().includes(query))
   );
+}
+
+function buildZoneSummaryRows(groups) {
+  const summary = new Map();
+
+  const upsertZoneEntry = (zone) => {
+    const key = String(zone || "").trim();
+    if (!key) return null;
+    const current = summary.get(key) || {
+      zone: key,
+      queued: 0,
+      approved: 0,
+      rework: 0,
+      rejectedToday: 0,
+      pendingReview: 0,
+    };
+    summary.set(key, current);
+    return current;
+  };
+
+  const extractZones = (row) => {
+    const zones = new Set(
+      (row.destinationOptions || [])
+        .map((item) => String(item?.zone || "").trim())
+        .filter(Boolean),
+    );
+    if (!zones.size && row.zone) {
+      zones.add(String(row.zone).trim());
+    }
+    return Array.from(zones);
+  };
+
+  (groups?.queued || []).forEach((row) => {
+    extractZones(row).forEach((zone) => {
+      const entry = upsertZoneEntry(zone);
+      if (!entry) return;
+      entry.queued += 1;
+      if (row.qualityStatus === "APPROVED") {
+        entry.approved += 1;
+      } else if (row.qualityStatus === "REWORK") {
+        entry.rework += 1;
+      } else if (["PENDING", "IN_PROGRESS"].includes(row.qualityStatus || "PENDING")) {
+        entry.pendingReview += 1;
+      }
+    });
+  });
+
+  (groups?.assigned || []).forEach((row) => {
+    if (row.qualityStatus !== "APPROVED") return;
+    extractZones(row).forEach((zone) => {
+      const entry = upsertZoneEntry(zone);
+      if (!entry) return;
+      entry.approved += 1;
+    });
+  });
+
+  (groups?.rejected || []).forEach((row) => {
+    if (!isTodayInBogota(row.rejectedAt || row.latestInspection?.reviewedAt)) return;
+    extractZones(row).forEach((zone) => {
+      const entry = upsertZoneEntry(zone);
+      if (!entry) return;
+      entry.rejectedToday += 1;
+    });
+  });
+
+  return Array.from(summary.values()).sort((left, right) => left.zone.localeCompare(right.zone, "es"));
+}
+
+function filterZoneSummaryRows(rows) {
+  const query = elements.searchInput.value.trim().toLowerCase();
+  if (!query) return rows || [];
+  return (rows || []).filter((row) =>
+    [row.zone, row.queued, row.approved, row.rework, row.rejectedToday, row.pendingReview]
+      .filter((value) => value !== null && value !== undefined)
+      .some((value) => String(value).toLowerCase().includes(query))
+  );
+}
+
+function isTodayInBogota(value) {
+  if (!value) return false;
+  try {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return false;
+    const today = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Bogota",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+    const target = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Bogota",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(parsed);
+    return today === target;
+  } catch {
+    return false;
+  }
 }
 
 function filterHistoryRows(rows) {
