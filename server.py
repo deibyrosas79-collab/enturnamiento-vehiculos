@@ -1752,8 +1752,8 @@ def get_user_state(user: sqlite3.Row, origin: str) -> Dict[str, Any]:
         queued_rows = [row for row in vehicles if row["status"] == QUEUE_STATUS_ACTIVE]
         turn_positions = calculate_turn_positions(queued_rows)
         city_turn_map, city_queue_lists = build_city_turn_maps(queued_rows, destination_lookup)
-        latest_inspections = load_latest_inspections(db)
-        inspections_by_vehicle = load_inspections_by_vehicle(db)
+        latest_inspections = load_latest_inspections(db, include_media=False)
+        inspections_by_vehicle = load_inspections_by_vehicle(db, include_media=False)
 
         queued = [
             serialize_vehicle(row, turn_positions, latest_inspections, destination_lookup, city_turn_map)
@@ -1787,7 +1787,7 @@ def get_user_state(user: sqlite3.Row, origin: str) -> Dict[str, Any]:
             "SELECT * FROM quality_inspections ORDER BY reviewed_at DESC, created_at DESC"
         ).fetchall()
         visible_vehicle_ids = {vehicle["id"] for vehicle in queued + assigned + rejected}
-        inspections = [serialize_inspection(row) for row in inspection_rows if row["vehicle_id"] in visible_vehicle_ids]
+        inspections = [serialize_inspection(row, include_media=False) for row in inspection_rows if row["vehicle_id"] in visible_vehicle_ids]
 
     quality_pending = [vehicle for vehicle in queued if vehicle["qualityStatus"] in {QUALITY_PENDING, QUALITY_IN_PROGRESS}]
     quality_rework = [vehicle for vehicle in queued if vehicle["qualityStatus"] == QUALITY_REWORK]
