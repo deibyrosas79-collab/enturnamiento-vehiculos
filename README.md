@@ -75,3 +75,5 @@ El proyecto ya incluye base inicial para migrar a Azure manteniendo Render activ
 
 - [DEPLOY-AZURE.md](/C:/Users/deiby/Downloads/enturnamiento-vehiculos/DEPLOY-AZURE.md)
 - [.github/workflows/azure-webapp.yml](/C:/Users/deiby/Downloads/enturnamiento-vehiculos/.github/workflows/azure-webapp.yml)
+- [infra/azure/main.bicep](/C:/Users/deiby/Downloads/enturnamiento-vehiculos/infra/azure/main.bicep)
+- [infra/azure/README.md](/C:/Users/deiby/Downloads/enturnamiento-vehiculos/infra/azure/README.md)
