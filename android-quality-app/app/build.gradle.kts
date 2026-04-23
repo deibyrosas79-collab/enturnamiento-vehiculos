@@ -13,7 +13,7 @@ android {
     namespace = "com.diana.enturnamientocalidad"
     compileSdk = 35
     val apiBaseUrl = (project.findProperty("API_BASE_URL") as? String)
-        ?: "https://enturnamiento-vehiculos.onrender.com/api/"
+        ?: "http://enturnamiento-d79-app.eastus2.azurecontainer.io:8000/api/"
 
     defaultConfig {
         applicationId = "com.diana.enturnamientocalidad"
