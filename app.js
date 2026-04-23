@@ -176,9 +176,54 @@ let lastSeenQueuedIds = new Set();
 bootstrap();
 
 function bootstrap() {
+  applyStaticTextOverrides();
   renderChecklistForm();
   bindEvents();
   loadSession();
+}
+
+function setLabelText(inputSelector, text) {
+  const input = document.querySelector(inputSelector);
+  const label = input?.closest("label");
+  if (!label) return;
+  const textNode = Array.from(label.childNodes).find((node) => node.nodeType === Node.TEXT_NODE);
+  if (textNode) {
+    textNode.nodeValue = `${text}`;
+  }
+}
+
+function applyStaticTextOverrides() {
+  document.querySelector(".hero .hero-text")?.replaceChildren(
+    document.createTextNode(
+      "Registro logístico, turnos por transportadora, checklist de calidad, historial operativo y administración centralizada en tiempo real.",
+    ),
+  );
+  document.querySelector(".hero-logo")?.setAttribute("alt", "Logo Diana Logística");
+  document.querySelector("#authScreen h2")?.replaceChildren(document.createTextNode("Iniciar sesión"));
+  document.querySelector("#authScreen .panel-heading p:not(.eyebrow)")?.replaceChildren(
+    document.createTextNode("Ingresa con un usuario de logística, calidad o administrador."),
+  );
+  elements.refreshButton.textContent = "Actualizar información";
+  elements.logoutButton.textContent = "Cerrar sesión";
+  document.querySelector('[data-view="dashboard"]')?.replaceChildren(document.createTextNode("Logística"));
+  document.querySelector('[data-view="settings"]')?.replaceChildren(document.createTextNode("Configuración"));
+  document.querySelector("#dashboardView .panel .panel-heading h3")?.replaceChildren(document.createTextNode("Registrar vehículo"));
+  document.querySelector("#dashboardView .panel .panel-heading p")?.replaceChildren(
+    document.createTextNode("Puedes escoger varias ciudades para el mismo vehículo. El sistema lo mostrará en cada lista de ciudad sin duplicar el registro único del vehículo."),
+  );
+  setLabelText("#driverId", "Cédula");
+  document.querySelector("#driverId")?.setAttribute("placeholder", "Número de cédula");
+  setLabelText("#emptyWeightKg", "P. vacío (kg)");
+  setLabelText("#destinationId", "Ciudades / destinos de interés");
+  const cityCountHeading = document.querySelector("#dashboardView > .panel .panel-heading p");
+  cityCountHeading?.replaceChildren(
+    document.createTextNode("Cada vehículo aparece en todas las ciudades que seleccionó, conservando un solo registro maestro."),
+  );
+  elements.qualityApprovedCount?.nextElementSibling?.replaceChildren(document.createTextNode("Aptos del día"));
+  elements.qualityRejectedCount?.nextElementSibling?.replaceChildren(document.createTextNode("Rechazados del día"));
+  document.querySelector("#historyView .panel-heading p")?.replaceChildren(
+    document.createTextNode("Aquí se conserva el registro del vehículo, sus evidencias, el resultado de calidad, el responsable y el tiempo transcurrido entre enturnamiento y revisión."),
+  );
 }
 
 function bindEvents() {

@@ -1,4 +1,4 @@
-package com.diana.enturnamientocalidad.ui
+﻿package com.diana.enturnamientocalidad.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -48,7 +48,7 @@ fun QualityStatusScreen(
     subtitle: String,
     vehicles: List<VehicleDto>,
     allowReview: Boolean,
-    actionLabel: String = "Abrir revisión",
+    actionLabel: String = "Abrir revisi\u00f3n",
     onBack: () -> Unit,
     onOpenInspection: (VehicleDto) -> Unit,
 ) {
@@ -105,7 +105,7 @@ fun QualityStatusScreen(
                                     tint = MaterialTheme.colorScheme.primary,
                                 )
                             }
-                            Text("No hay vehículos en esta vista.")
+                            Text("No hay veh\u00edculos en esta vista.")
                         }
                     }
                 }
@@ -179,7 +179,7 @@ private fun VehicleStatusCard(
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f),
             ) {
                 Text(
-                    text = vehicle.latestInspection?.findingsSummary ?: "Sin hallazgos registrados todavía.",
+                    text = vehicle.latestInspection?.findingsSummary ?: "Sin hallazgos registrados todav\u00eda.",
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -236,7 +236,7 @@ private fun translateQualityStatus(status: String): String = when (status) {
     "APPROVED" -> "Apto"
     "REWORK" -> "Requiere arreglos"
     "REJECTED" -> "Rechazado"
-    "IN_REVIEW" -> "En revisión"
+    "IN_REVIEW" -> "En revisi\u00f3n"
     else -> "Pendiente"
 }
 

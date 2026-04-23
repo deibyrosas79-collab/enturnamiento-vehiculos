@@ -1,4 +1,4 @@
-package com.diana.enturnamientocalidad.ui
+﻿package com.diana.enturnamientocalidad.ui
 
 import android.content.Context
 import androidx.lifecycle.ViewModel
@@ -155,10 +155,10 @@ class QualityViewModel(
                     }
                 }
                 .addOnFailureListener {
-                    // Si Firebase no está configurado todavía, mantenemos la app operativa sin romper la sesión.
+                    // Si Firebase no esta configurado todavia, mantenemos la app operativa sin romper la sesion.
                 }
         }.onFailure {
-            // Si falta google-services.json o Firebase no está inicializado, la app sigue funcionando sin push.
+            // Si falta google-services.json o Firebase no esta inicializado, la app sigue funcionando sin push.
         }
     }
 
@@ -166,7 +166,7 @@ class QualityViewModel(
         if (state.user.role != "CALIDAD") {
             onInvalidRole()
             _uiState.value = QualityUiState(
-                errorMessage = "Esta app móvil es solo para usuarios con rol CALIDAD.",
+                errorMessage = "Esta app m\u00f3vil es solo para usuarios con rol CALIDAD.",
             )
             return
         }
@@ -182,8 +182,8 @@ class QualityViewModel(
             freshVehicles.forEachIndexed { index, vehicle ->
                 AppNotificationHelper.showLocalNotification(
                     context = appContext,
-                    title = "Nuevo vehículo por revisar",
-                    body = "Placa ${vehicle.plate} · ${vehicle.driverName}",
+                    title = "Nuevo veh\u00edculo por revisar",
+                    body = "Placa ${vehicle.plate} \u00b7 ${vehicle.driverName}",
                     notificationId = 4000 + index + vehicle.id.hashCode(),
                 )
             }
@@ -219,15 +219,15 @@ class QualityViewModel(
                 message.contains("403", ignoreCase = true) ||
                 message.contains("usuario o clave", ignoreCase = true) ||
                 message.contains("credenciales", ignoreCase = true) ->
-                "Usuario o contraseña incorrectos. Verifica la información e intenta nuevamente."
+                "Usuario o contrase\u00f1a incorrectos. Verifica la informaci\u00f3n e intenta nuevamente."
             message.contains("Unable to resolve host", ignoreCase = true) ->
                 "No fue posible conectar la app con el programa principal."
             message.contains("Failed to connect", ignoreCase = true) ->
                 "No fue posible conectar la app con el programa principal."
             message.contains("timeout", ignoreCase = true) ->
-                "El servidor tardó demasiado en responder. Intenta nuevamente."
+                "El servidor tard\u00f3 demasiado en responder. Intenta nuevamente."
             message.isBlank() ->
-                "Ocurrió un problema al sincronizar la información de calidad."
+                "Ocurri\u00f3 un problema al sincronizar la informaci\u00f3n de calidad."
             else -> message
         }
     }

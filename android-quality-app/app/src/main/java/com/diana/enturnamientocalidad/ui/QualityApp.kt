@@ -1,4 +1,4 @@
-package com.diana.enturnamientocalidad.ui
+﻿package com.diana.enturnamientocalidad.ui
 
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -105,10 +105,10 @@ fun QualityApp(viewModel: QualityViewModel) {
                 QualityStatusScreen(
                     padding = padding,
                     title = "Pendientes por revisar",
-                    subtitle = "Vehículos recién enturnados que aún no tienen checklist completo.",
+                    subtitle = "Veh\u00edculos reci\u00e9n enturnados que a\u00fan no tienen checklist completo.",
                     vehicles = uiState.pending,
                     allowReview = true,
-                    actionLabel = "Abrir revisión",
+                    actionLabel = "Abrir revisi\u00f3n",
                     onBack = { navController.popBackStack() },
                     onOpenInspection = { vehicle ->
                         InspectionRoutesHolder.vehicle = vehicle
@@ -119,11 +119,11 @@ fun QualityApp(viewModel: QualityViewModel) {
             composable("status/rework") {
                 QualityStatusScreen(
                     padding = padding,
-                    title = "Vehículos en arreglos",
+                    title = "Veh\u00edculos en arreglos",
                     subtitle = "Unidades revisadas que requieren ajustes antes de aprobarse.",
                     vehicles = uiState.rework,
                     allowReview = true,
-                    actionLabel = "Abrir revisión",
+                    actionLabel = "Abrir revisi\u00f3n",
                     onBack = { navController.popBackStack() },
                     onOpenInspection = { vehicle ->
                         InspectionRoutesHolder.vehicle = vehicle
@@ -134,8 +134,8 @@ fun QualityApp(viewModel: QualityViewModel) {
             composable("status/approved") {
                 QualityStatusScreen(
                     padding = padding,
-                    title = "Vehículos aptos",
-                    subtitle = "Consulta los vehículos aptos del día y corrige el estado si fue marcado por error.",
+                    title = "Veh\u00edculos aptos",
+                    subtitle = "Consulta los veh\u00edculos aptos del d\u00eda y corrige el estado si fue marcado por error.",
                     vehicles = uiState.approved,
                     allowReview = true,
                     actionLabel = "Editar estado",
@@ -149,8 +149,8 @@ fun QualityApp(viewModel: QualityViewModel) {
             composable("status/rejected") {
                 QualityStatusScreen(
                     padding = padding,
-                    title = "Vehículos rechazados",
-                    subtitle = "Consulta los rechazados del día y cambia el estado si fue registrado por error.",
+                    title = "Veh\u00edculos rechazados",
+                    subtitle = "Consulta los rechazados del d\u00eda y cambia el estado si fue registrado por error.",
                     vehicles = uiState.rejected,
                     allowReview = true,
                     actionLabel = "Editar estado",

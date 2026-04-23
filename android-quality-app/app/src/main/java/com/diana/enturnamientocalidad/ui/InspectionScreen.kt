@@ -1,4 +1,4 @@
-package com.diana.enturnamientocalidad.ui
+﻿package com.diana.enturnamientocalidad.ui
 
 import android.Manifest
 import android.content.ContentValues
@@ -77,16 +77,16 @@ private data class ChecklistDefinition(
 private val inspectionChecklist = listOf(
     ChecklistDefinition("foodLegend", "Cuenta con leyenda visible \"Transporte de alimentos\"", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
     ChecklistDefinition("cleanliness", "Libre de suciedad", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
-    ChecklistDefinition("strangeSmells", "Libre de olores extraños", false, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
+    ChecklistDefinition("strangeSmells", "Libre de olores extra\u00f1os", false, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
     ChecklistDefinition("stains", "Libre de manchas", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
-    ChecklistDefinition("damage", "Libre de orificios y averías", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
+    ChecklistDefinition("damage", "Libre de orificios y aver\u00edas", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
     ChecklistDefinition("humidity", "Libre de humedad", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
-    ChecklistDefinition("infestation", "Libre de infestación (plagas, roedores y/o contaminación biológica)", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
+    ChecklistDefinition("infestation", "Libre de infestaci\u00f3n (plagas, roedores y/o contaminaci\u00f3n biol\u00f3gica)", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
     ChecklistDefinition("bulkWallsFloor", "Granel en paredes y piso limpio y en buen estado", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
-    ChecklistDefinition("containerHoles", "Trompos (agujeros de ensamble del contenedor) limpios y con la debida protección de parche", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
-    ChecklistDefinition("woodenStakesPestFree", "Estacas de madera del vehículo libres de plagas (paredes y pisos)", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
-    ChecklistDefinition("fumigationIn", "Fumigación ingreso", true, listOf("SI" to "Sí", "NO" to "No"), requiresPoison = true),
-    ChecklistDefinition("fumigationOut", "Fumigación salida", true, listOf("SI" to "Sí", "NO" to "No"), requiresPoison = true),
+    ChecklistDefinition("containerHoles", "Trompos (agujeros de ensamble del contenedor) limpios y con la debida protecci\u00f3n de parche", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
+    ChecklistDefinition("woodenStakesPestFree", "Estacas de madera del veh\u00edculo libres de plagas (paredes y pisos)", true, listOf("CUMPLE" to "Cumple", "NO_CUMPLE" to "No cumple", "NO_APLICA" to "No aplica")),
+    ChecklistDefinition("fumigationIn", "Fumigaci\u00f3n ingreso", true, listOf("SI" to "S\u00ed", "NO" to "No"), requiresPoison = true),
+    ChecklistDefinition("fumigationOut", "Fumigaci\u00f3n salida", true, listOf("SI" to "S\u00ed", "NO" to "No"), requiresPoison = true),
 )
 
 private val suitabilityOptions = listOf(
@@ -177,18 +177,18 @@ fun InspectionScreen(
             }
             captureTarget = null
             pendingCaptureUri = null
-            localValidationError = "Debes permitir cámara y almacenamiento para registrar la foto."
+            localValidationError = "Debes permitir cÃ¡mara y almacenamiento para registrar la foto."
             return@rememberLauncherForActivityResult
         }
         if (target.isNullOrBlank()) {
-            localValidationError = "No se encontró el punto del checklist para tomar la foto."
+            localValidationError = "No se encontrÃ³ el punto del checklist para tomar la foto."
             return@rememberLauncherForActivityResult
         }
         val captureUri = createChecklistCameraUri(context, vehicle?.plate ?: "vehiculo", target)
         if (captureUri == null) {
             captureTarget = null
             pendingCaptureUri = null
-            localValidationError = "No se pudo preparar la cámara del dispositivo."
+            localValidationError = "No se pudo preparar la cÃ¡mara del dispositivo."
             return@rememberLauncherForActivityResult
         }
         localValidationError = null
@@ -202,7 +202,7 @@ fun InspectionScreen(
             .padding(padding),
     ) {
         TopAppBar(
-            title = { Text(vehicle?.plate ?: "Inspección") },
+            title = { Text(vehicle?.plate ?: "InspecciÃ³n") },
             navigationIcon = {
                 IconButton(onClick = onBack) {
                     Icon(
@@ -219,7 +219,7 @@ fun InspectionScreen(
                     .padding(20.dp),
                 verticalArrangement = Arrangement.Center,
             ) {
-                Text("No se encontró el vehículo para revisar.")
+                Text("No se encontrÃ³ el vehÃ­culo para revisar.")
                 Button(
                     onClick = onBack,
                     modifier = Modifier.padding(top = 12.dp),
@@ -267,7 +267,7 @@ fun InspectionScreen(
                                     fontWeight = FontWeight.ExtraBold,
                                 )
                                 Text(
-                                    text = "Vehículo ${vehicle.plate} listo para inspección.",
+                                    text = "VehÃ­culo ${vehicle.plate} listo para inspecciÃ³n.",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.85f),
                                 )
@@ -321,7 +321,7 @@ fun InspectionScreen(
                             val captureUri = createChecklistCameraUri(context, vehicle.plate, definition.key)
                             if (captureUri == null) {
                                 captureTarget = null
-                                localValidationError = "No se pudo abrir la cámara para ${definition.label}."
+                                localValidationError = "No se pudo abrir la cÃ¡mara para ${definition.label}."
                             } else {
                                 localValidationError = null
                                 pendingCaptureUri = captureUri
@@ -353,7 +353,7 @@ fun InspectionScreen(
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
                         Text(
-                            text = "Uso permitido del vehículo",
+                            text = "Uso permitido del vehÃ­culo",
                             style = MaterialTheme.typography.titleMedium,
                         )
                         FlowRow(
@@ -383,7 +383,7 @@ fun InspectionScreen(
                         )
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
-                                text = "Decisión final",
+                                text = "DecisiÃ³n final",
                                 style = MaterialTheme.typography.titleMedium,
                             )
                             FlowRow(
@@ -450,7 +450,7 @@ fun InspectionScreen(
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                 ) {
-                    Text(if (loading) "Guardando..." else "Guardar inspección")
+                    Text(if (loading) "Guardando..." else "Guardar inspecciÃ³n")
                 }
             }
         }
@@ -602,7 +602,7 @@ private fun EvidencePreviewDialog(
                     Text("No se pudo cargar la vista previa de la foto.")
                 }
                 Text(
-                    text = "La foto ya quedó guardada en el registro y también en la galería del celular.",
+                    text = "La foto ya quedÃ³ guardada en el registro y tambiÃ©n en la galerÃ­a del celular.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
