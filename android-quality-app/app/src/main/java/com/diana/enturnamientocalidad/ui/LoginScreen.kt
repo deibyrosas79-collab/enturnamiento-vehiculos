@@ -1,5 +1,6 @@
 package com.diana.enturnamientocalidad.ui
 
+import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -39,6 +40,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -54,6 +56,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import com.diana.enturnamientocalidad.BuildConfig
 import com.diana.enturnamientocalidad.R
 
 @Composable
@@ -62,6 +65,11 @@ fun LoginScreen(
     loading: Boolean,
     onLogin: (String, String) -> Unit,
 ) {
+    val currentApiHost = remember {
+        runCatching {
+            Uri.parse(BuildConfig.BASE_URL).host ?: BuildConfig.BASE_URL
+        }.getOrDefault(BuildConfig.BASE_URL)
+    }
     var username by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
     var showPassword by rememberSaveable { mutableStateOf(false) }
@@ -132,15 +140,15 @@ fun LoginScreen(
                                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                             ) {
                                 Surface(
-                                    shape = RoundedCornerShape(18.dp),
+                                    shape = RoundedCornerShape(22.dp),
                                     color = Color.White.copy(alpha = 0.14f),
                                 ) {
                                     Image(
                                         painter = painterResource(id = R.drawable.logo_control_calidad),
                                         contentDescription = "Logo Control Calidad",
                                         modifier = Modifier
-                                            .size(width = 94.dp, height = 72.dp)
-                                            .padding(10.dp),
+                                            .size(width = 144.dp, height = 112.dp)
+                                            .padding(horizontal = 8.dp, vertical = 4.dp),
                                         contentScale = ContentScale.Fit,
                                     )
                                 }
@@ -263,7 +271,7 @@ fun LoginScreen(
                                     color = MaterialTheme.colorScheme.primary,
                                 )
                                 Text(
-                                    text = "Servidor principal: enturnamiento-vehiculos.onrender.com",
+                                    text = "Servidor principal: $currentApiHost",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )

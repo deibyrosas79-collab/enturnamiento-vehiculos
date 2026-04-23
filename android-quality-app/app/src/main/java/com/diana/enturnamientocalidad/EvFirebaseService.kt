@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
 import com.diana.enturnamientocalidad.data.remote.ApiService
+import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import kotlinx.coroutines.CoroutineScope
@@ -30,6 +31,7 @@ class EvFirebaseService : FirebaseMessagingService() {
     override fun onNewToken(token: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                if (FirebaseApp.getApps(this@EvFirebaseService).isEmpty()) return@launch
                 val api = Retrofit.Builder()
                     .baseUrl(BuildConfig.BASE_URL)
                     .addConverterFactory(GsonConverterFactory.create())

@@ -13,6 +13,8 @@ import com.diana.enturnamientocalidad.data.remote.ApiService
 import com.diana.enturnamientocalidad.data.remote.AuthInterceptor
 import com.diana.enturnamientocalidad.data.repository.QualityRepository
 import com.diana.enturnamientocalidad.data.session.SessionStore
+import com.google.firebase.FirebaseApp
+import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -41,11 +43,18 @@ data class QualityUiState(
 
 class QualityViewModel(
     private val repository: QualityRepository,
+    private val appContext: Context,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(QualityUiState())
     val uiState: StateFlow<QualityUiState> = _uiState.asStateFlow()
+    private var lastPendingVehicleIds: Set<String> = emptySet()
+    private var hasLoadedState = false
 
     init {
+        repository.getSavedAppState()?.let { cached ->
+            applyState(cached, repository::clearSession, allowNotifications = false)
+        }
+        syncFcmToken()
         if (!repository.getSavedToken().isNullOrBlank()) {
             refresh()
         }
@@ -55,7 +64,10 @@ class QualityViewModel(
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(loading = true, errorMessage = null)
             runCatching { repository.login(username, password) }
-                .onSuccess { applyState(it, repository::clearSession) }
+                .onSuccess {
+                    applyState(it, repository::clearSession, allowNotifications = false)
+                    syncFcmToken()
+                }
                 .onFailure {
                     _uiState.value = _uiState.value.copy(
                         loading = false,
@@ -69,7 +81,10 @@ class QualityViewModel(
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(loading = true, errorMessage = null)
             runCatching { repository.getAppState() }
-                .onSuccess { applyState(it, repository::clearSession) }
+                .onSuccess {
+                    applyState(it, repository::clearSession, allowNotifications = hasLoadedState)
+                    syncFcmToken()
+                }
                 .onFailure {
                     _uiState.value = _uiState.value.copy(
                         loading = false,
@@ -81,6 +96,8 @@ class QualityViewModel(
 
     fun logout() {
         repository.clearSession()
+        lastPendingVehicleIds = emptySet()
+        hasLoadedState = false
         _uiState.value = QualityUiState()
     }
 
@@ -105,7 +122,8 @@ class QualityViewModel(
                     ),
                 )
             }.onSuccess {
-                applyState(it, repository::clearSession)
+                applyState(it, repository::clearSession, allowNotifications = false)
+                syncFcmToken()
                 onComplete(true)
             }.onFailure {
                 _uiState.value = _uiState.value.copy(
@@ -121,7 +139,29 @@ class QualityViewModel(
         _uiState.value = _uiState.value.copy(errorMessage = null)
     }
 
-    private fun applyState(state: AppStateDto, onInvalidRole: () -> Unit) {
+    private fun syncFcmToken() {
+        runCatching {
+            val existingApps = FirebaseApp.getApps(appContext)
+            if (existingApps.isEmpty()) {
+                FirebaseApp.initializeApp(appContext) ?: return
+            }
+            FirebaseMessaging.getInstance().token
+                .addOnSuccessListener { token ->
+                    if (token.isNullOrBlank()) return@addOnSuccessListener
+                    if (token == repository.getSavedFcmToken()) return@addOnSuccessListener
+                    viewModelScope.launch {
+                        runCatching { repository.registerFcmToken(token) }
+                    }
+                }
+                .addOnFailureListener {
+                    // Si Firebase no está configurado todavía, mantenemos la app operativa sin romper la sesión.
+                }
+        }.onFailure {
+            // Si falta google-services.json o Firebase no está inicializado, la app sigue funcionando sin push.
+        }
+    }
+
+    private fun applyState(state: AppStateDto, onInvalidRole: () -> Unit, allowNotifications: Boolean) {
         if (state.user.role != "CALIDAD") {
             onInvalidRole()
             _uiState.value = QualityUiState(
@@ -135,6 +175,20 @@ class QualityViewModel(
         val rejectedToday = state.quality.rejected.filter {
             it.latestInspection?.reviewedAt?.let(::isTodayInBogota) == true
         }
+        val newPendingIds = state.quality.pending.map { it.id }.toSet()
+        if (allowNotifications) {
+            val freshVehicles = state.quality.pending.filter { it.id !in lastPendingVehicleIds }
+            freshVehicles.forEachIndexed { index, vehicle ->
+                AppNotificationHelper.showLocalNotification(
+                    context = appContext,
+                    title = "Nuevo vehículo por revisar",
+                    body = "Placa ${vehicle.plate} · ${vehicle.driverName}",
+                    notificationId = 4000 + index + vehicle.id.hashCode(),
+                )
+            }
+        }
+        lastPendingVehicleIds = newPendingIds
+        hasLoadedState = true
         _uiState.value = QualityUiState(
             loading = false,
             loggedIn = true,
@@ -160,6 +214,11 @@ class QualityViewModel(
     private fun humanizeError(error: Throwable): String {
         val message = error.message.orEmpty()
         return when {
+            message.contains("401", ignoreCase = true) ||
+                message.contains("403", ignoreCase = true) ||
+                message.contains("usuario o clave", ignoreCase = true) ||
+                message.contains("credenciales", ignoreCase = true) ->
+                "Usuario o contraseña incorrectos. Verifica la información e intenta nuevamente."
             message.contains("Unable to resolve host", ignoreCase = true) ->
                 "No fue posible conectar la app con el programa principal."
             message.contains("Failed to connect", ignoreCase = true) ->
@@ -193,7 +252,10 @@ class QualityViewModel(
                     .client(okHttp)
                     .build()
                 val api = retrofit.create(ApiService::class.java)
-                return QualityViewModel(QualityRepository(api, sessionStore)) as T
+                return QualityViewModel(
+                    repository = QualityRepository(api, sessionStore),
+                    appContext = context.applicationContext,
+                ) as T
             }
         }
     }
