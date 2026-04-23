@@ -1,3 +1,7 @@
+# Azure - credenciales sensibles (nunca commitear)
+infra/azure/azure-deploy-summary.txt
+infra/azure/azure-publish-profile.xml
+
 __pycache__/
 *.pyc
 *.pyo

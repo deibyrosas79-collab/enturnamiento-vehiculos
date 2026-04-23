@@ -2,6 +2,85 @@
 
 Esta guia deja la aplicacion funcionando en paralelo con Render mientras se valida Azure.
 
+---
+
+## Pasos para activar Azure (sin afectar Render)
+
+### Paso 1 — Provisionar recursos en Azure (una sola vez)
+
+Abre **PowerShell como administrador** y ejecuta:
+
+```powershell
+# Instalar modulos Az si no los tienes
+Install-Module -Name Az -Repository PSGallery -Force -AllowClobber
+
+# Ir a la carpeta del script
+cd C:\Users\deiby\Downloads\enturnamiento-vehiculos\infra\azure
+
+# Ejecutar (abre el navegador para autenticarte)
+.\provision-azure.ps1
+```
+
+Al terminar genera en `infra/azure/`:
+- `azure-deploy-summary.txt` — **guarda la clave de PostgreSQL, no se puede recuperar**
+- `azure-publish-profile.xml` — necesario para el paso 2
+
+### Paso 2 — Agregar secrets en GitHub
+
+Ve a tu repositorio → **Settings → Secrets and variables → Actions → Secrets** y agrega:
+
+| Secret | Valor |
+|--------|-------|
+| `AZURE_WEBAPP_NAME` | `enturnamiento-diana-d79-prod` |
+| `AZURE_WEBAPP_PUBLISH_PROFILE` | Contenido completo del archivo `azure-publish-profile.xml` |
+
+> El archivo `azure-publish-profile.xml` contiene credenciales. NO lo subas al repositorio.
+
+### Paso 3 — Habilitar deploy automatico
+
+Ve a tu repositorio → **Settings → Secrets and variables → Actions → Variables** (pestana Variables) y agrega:
+
+| Variable | Valor |
+|----------|-------|
+| `AZURE_DEPLOY_ENABLED` | `true` |
+
+Sin esta variable el workflow de Azure solo se activa manualmente (no en cada push).
+
+### Paso 4 — Primer deploy manual
+
+GitHub → Actions → **azure-webapp** → **Run workflow**.
+
+La app quedara disponible en:
+```
+https://enturnamiento-diana-d79-prod.azurewebsites.net
+```
+
+### Paso 5 — App Android (cuando Azure este validado)
+
+En `QualityRepository.kt` actualiza la URL base para apuntar a Azure:
+```kotlin
+private const val BASE_URL = "https://enturnamiento-diana-d79-prod.azurewebsites.net"
+```
+
+---
+
+## Arquitectura paralela resultante
+
+```
+GitHub (main)
+    |
+    +--- Render (plan free, sin cambios)
+    |       URL actual de la app y APK
+    |       DB: PostgreSQL Render o SQLite contingencia
+    |
+    +--- Azure App Service (nuevo, paralelo)
+            URL: enturnamiento-diana-d79-prod.azurewebsites.net
+            DB:  PostgreSQL Azure
+            Storage: Blob Storage evidencias
+```
+
+---
+
 ## Arquitectura recomendada
 
 - `Azure App Service (Linux)` para la aplicacion web y API.

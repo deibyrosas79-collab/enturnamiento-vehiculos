@@ -8,6 +8,8 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    # Solo ejecutar si los secrets de Azure están configurados
+    if: ${{ vars.AZURE_DEPLOY_ENABLED == 'true' || github.event_name == 'workflow_dispatch' }}
 
     steps:
       - name: Checkout
@@ -39,7 +41,18 @@ jobs:
             -x "*.log" \
             -x "data/*"
 
+      - name: Verificar secrets configurados
+        id: check-secrets
+        run: |
+          if [ -z "${{ secrets.AZURE_WEBAPP_NAME }}" ]; then
+            echo "AZURE_WEBAPP_NAME no configurado. Agrega el secret en GitHub → Settings → Secrets."
+            echo "skip_deploy=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip_deploy=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Deploy to Azure Web App
+        if: steps.check-secrets.outputs.skip_deploy == 'false'
         uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
