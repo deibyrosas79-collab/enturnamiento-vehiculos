@@ -990,8 +990,18 @@ function renderQualityStack(container, rows, allowInspect, emptyText) {
   });
 }
 
-function renderHistoryTable() {
+async function renderHistoryTable() {
   if (!state.appState) return;
+  if (!state.historyRows?.length && state.user) {
+    elements.historyTable.innerHTML = `<div class="empty">Cargando historial...</div>`;
+    try {
+      await ensureHistoryLoaded();
+    } catch (error) {
+      elements.historyTable.innerHTML = `<div class="empty">No se pudo cargar el historial.</div>`;
+      showToast(error.message || "No se pudo cargar el historial.");
+      return;
+    }
+  }
   const rows = filterHistoryRows(state.historyRows || []);
   elements.historyTable.innerHTML = renderTable(getHistoryColumns(false), rows, "No hay historial registrado todavía.");
   bindRecordActions(elements.historyTable);
@@ -1587,8 +1597,8 @@ function getHistoryColumns(forExport = false) {
     ["Turnos por ciudad", (item) => getHistoryCityTurns(item)],
     ["Estado logística", (item) => translateLogisticsStatus(item.status)],
     ["Estado calidad", (item) => forExport ? translateQualityStatus(item.qualityStatus || "PENDING") : qualityBadge(item.qualityStatus)],
-    ["Selfie", (item) => forExport ? getSupportText(item.driverSelfieUrl, "Selfie registrada") : renderSupportLink(item.driverSelfieUrl, "Ver selfie")],
-    ["Firma", (item) => forExport ? getSupportText(item.driverSignatureUrl, "Firma registrada") : renderSupportLink(item.driverSignatureUrl, "Ver firma")],
+    ["Selfie", (item) => forExport ? getSupportText(item.driverSelfieUrl, "Selfie registrada") : renderSupportLink(item, "Ver selfie", "selfie")],
+    ["Firma", (item) => forExport ? getSupportText(item.driverSignatureUrl, "Firma registrada") : renderSupportLink(item, "Ver firma", "signature")],
     ["Inspector", (item) => getHistoryInspectorName(item)],
     ["Fecha revisión", (item) => formatDateOnly(getHistoryReviewedAt(item)) || "-"],
     ["Hora revisión", (item) => formatTimeOnly(getHistoryReviewedAt(item)) || "-"],

@@ -48,6 +48,7 @@ fun QualityStatusScreen(
     subtitle: String,
     vehicles: List<VehicleDto>,
     allowReview: Boolean,
+    actionLabel: String = "Abrir revisión",
     onBack: () -> Unit,
     onOpenInspection: (VehicleDto) -> Unit,
 ) {
@@ -98,7 +99,11 @@ fun QualityStatusScreen(
                                     .padding(10.dp),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Icon(Icons.Outlined.LocalShipping, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                Icon(
+                                    Icons.Outlined.LocalShipping,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
                             }
                             Text("No hay vehículos en esta vista.")
                         }
@@ -109,6 +114,7 @@ fun QualityStatusScreen(
                     VehicleStatusCard(
                         vehicle = vehicle,
                         allowReview = allowReview,
+                        actionLabel = actionLabel,
                         onOpenInspection = { onOpenInspection(vehicle) },
                     )
                 }
@@ -121,6 +127,7 @@ fun QualityStatusScreen(
 private fun VehicleStatusCard(
     vehicle: VehicleDto,
     allowReview: Boolean,
+    actionLabel: String,
     onOpenInspection: () -> Unit,
 ) {
     Card(
@@ -184,7 +191,7 @@ private fun VehicleStatusCard(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(18.dp),
                 ) {
-                    Text("Abrir revisión")
+                    Text(actionLabel)
                 }
             }
         }
@@ -193,43 +200,43 @@ private fun VehicleStatusCard(
 
 @Composable
 private fun StatusPill(status: String) {
-  val color = when (status) {
-      "APPROVED" -> Color(0xFF2E7D32)
-      "REWORK" -> Color(0xFFF9A825)
-      "REJECTED" -> Color(0xFFC62828)
-      else -> Color(0xFF1565C0)
-  }
-  val icon: ImageVector = when (status) {
-      "APPROVED" -> Icons.Outlined.CheckCircle
-      "REWORK" -> Icons.Outlined.Construction
-      "REJECTED" -> Icons.Outlined.ReportProblem
-      else -> Icons.Outlined.Schedule
-  }
-  Surface(
-      shape = RoundedCornerShape(999.dp),
-      color = color.copy(alpha = 0.14f),
-  ) {
-      Row(
-          modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-          horizontalArrangement = Arrangement.spacedBy(6.dp),
-          verticalAlignment = Alignment.CenterVertically,
-      ) {
-          Icon(icon, contentDescription = null, tint = color)
-          Text(
-              text = translateQualityStatus(status),
-              color = color,
-              style = MaterialTheme.typography.labelLarge,
-              fontWeight = FontWeight.Bold,
-          )
-      }
-  }
+    val color = when (status) {
+        "APPROVED" -> Color(0xFF2E7D32)
+        "REWORK" -> Color(0xFFF9A825)
+        "REJECTED" -> Color(0xFFC62828)
+        else -> Color(0xFF1565C0)
+    }
+    val icon: ImageVector = when (status) {
+        "APPROVED" -> Icons.Outlined.CheckCircle
+        "REWORK" -> Icons.Outlined.Construction
+        "REJECTED" -> Icons.Outlined.ReportProblem
+        else -> Icons.Outlined.Schedule
+    }
+    Surface(
+        shape = RoundedCornerShape(999.dp),
+        color = color.copy(alpha = 0.14f),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, contentDescription = null, tint = color)
+            Text(
+                text = translateQualityStatus(status),
+                color = color,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    }
 }
 
 private fun translateQualityStatus(status: String): String = when (status) {
     "APPROVED" -> "Apto"
     "REWORK" -> "Requiere arreglos"
     "REJECTED" -> "Rechazado"
-    "IN_REVIEW" -> "En revision"
+    "IN_REVIEW" -> "En revisión"
     else -> "Pendiente"
 }
 
@@ -251,12 +258,12 @@ private fun MetaChip(
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f),
             )
             Text(
                 text = value,
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
             )
         }
     }

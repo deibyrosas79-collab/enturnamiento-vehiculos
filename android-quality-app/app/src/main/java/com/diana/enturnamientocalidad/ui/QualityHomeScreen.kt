@@ -163,14 +163,14 @@ fun QualityHomeScreen(
         ) {
             StatTile(
                 modifier = Modifier.weight(1f),
-                label = "Aptos del dia",
+                label = "Aptos del día",
                 count = uiState.dailyApprovedCount,
                 icon = Icons.Outlined.CheckCircle,
                 tint = Color(0xFF2E7D32),
             )
             StatTile(
                 modifier = Modifier.weight(1f),
-                label = "Rechazados del dia",
+                label = "Rechazados del día",
                 count = uiState.dailyRejectedCount,
                 icon = Icons.Outlined.ReportProblem,
                 tint = Color(0xFFC62828),
@@ -179,7 +179,7 @@ fun QualityHomeScreen(
 
         StatusActionCard(
             title = "Pendientes por revisar",
-            subtitle = "Vehiculos recien enturnados que aun no tienen checklist completo.",
+            subtitle = "Vehículos recién enturnados que aún no tienen checklist completo.",
             countLabel = "${uiState.pending.size} pendientes",
             buttonLabel = "Abrir pendientes",
             icon = Icons.Outlined.Schedule,
@@ -187,7 +187,7 @@ fun QualityHomeScreen(
             onClick = onOpenPending,
         )
         StatusActionCard(
-            title = "Vehiculos en arreglos",
+            title = "Vehículos en arreglos",
             subtitle = "Unidades revisadas que requieren ajustes antes de aprobarse.",
             countLabel = "${uiState.rework.size} en arreglos",
             buttonLabel = "Abrir arreglos",
@@ -196,8 +196,8 @@ fun QualityHomeScreen(
             onClick = onOpenRework,
         )
         StatusActionCard(
-            title = "Vehiculos aptos",
-            subtitle = "Consulta los vehiculos aprobados hoy y su informacion consolidada.",
+            title = "Vehículos aptos",
+            subtitle = "Consulta los vehículos aprobados hoy y su información consolidada.",
             countLabel = "${uiState.dailyApprovedCount} aptos hoy",
             buttonLabel = "Abrir aptos",
             icon = Icons.Outlined.CheckCircle,
@@ -205,8 +205,8 @@ fun QualityHomeScreen(
             onClick = onOpenApproved,
         )
         StatusActionCard(
-            title = "Vehiculos rechazados",
-            subtitle = "Revisa los rechazados del dia y las observaciones registradas.",
+            title = "Vehículos rechazados",
+            subtitle = "Revisa los rechazados del día y las observaciones registradas.",
             countLabel = "${uiState.dailyRejectedCount} rechazados hoy",
             buttonLabel = "Abrir rechazados",
             icon = Icons.Outlined.ReportProblem,

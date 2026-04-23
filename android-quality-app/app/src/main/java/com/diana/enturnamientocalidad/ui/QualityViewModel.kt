@@ -23,6 +23,7 @@ import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.util.concurrent.TimeUnit
@@ -165,7 +166,7 @@ class QualityViewModel(
         if (state.user.role != "CALIDAD") {
             onInvalidRole()
             _uiState.value = QualityUiState(
-                errorMessage = "Esta app movil es solo para usuarios con rol CALIDAD.",
+                errorMessage = "Esta app móvil es solo para usuarios con rol CALIDAD.",
             )
             return
         }
@@ -207,7 +208,7 @@ class QualityViewModel(
         return runCatching {
             OffsetDateTime.parse(value)
                 .atZoneSameInstant(ZoneId.of("America/Bogota"))
-                .toLocalDate() == java.time.LocalDate.now(ZoneId.of("America/Bogota"))
+                .toLocalDate() == LocalDate.now(ZoneId.of("America/Bogota"))
         }.getOrDefault(false)
     }
 
@@ -224,9 +225,9 @@ class QualityViewModel(
             message.contains("Failed to connect", ignoreCase = true) ->
                 "No fue posible conectar la app con el programa principal."
             message.contains("timeout", ignoreCase = true) ->
-                "El servidor tardo demasiado en responder. Intenta nuevamente."
+                "El servidor tardó demasiado en responder. Intenta nuevamente."
             message.isBlank() ->
-                "Ocurrio un problema al sincronizar la informacion de calidad."
+                "Ocurrió un problema al sincronizar la información de calidad."
             else -> message
         }
     }

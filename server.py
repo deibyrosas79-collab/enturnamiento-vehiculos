@@ -2828,7 +2828,7 @@ def save_quality_inspection(vehicle_id: str, user: sqlite3.Row, payload: Dict[st
     checklist_saved = save_checklist_evidence(vehicle_id, inspection_id, checklist)
 
     with get_connection() as db:
-        vehicle = db.execute("SELECT * FROM vehicles WHERE id = ? AND status = 'QUEUED'", (vehicle_id,)).fetchone()
+        vehicle = db.execute("SELECT * FROM vehicles WHERE id = ?", (vehicle_id,)).fetchone()
         if not vehicle:
             raise AppError("El vehiculo ya no esta disponible para revision.", 404)
 
@@ -2863,6 +2863,33 @@ def save_quality_inspection(vehicle_id: str, user: sqlite3.Row, payload: Dict[st
             new_queue_position = None
             rejected_at = reviewed_at
             rejection_reason = findings_summary or "Rechazo por calidad"
+        else:
+            if vehicle["status"] == QUEUE_STATUS_REJECTED:
+                new_status = QUEUE_STATUS_ACTIVE
+                new_queue_position = db.execute(
+                    """
+                    SELECT COALESCE(MAX(queue_position), 0) + 1
+                    FROM vehicles
+                    WHERE id != ? AND status = 'QUEUED' AND COALESCE(queue_group, ?) = ?
+                    """,
+                    (vehicle_id, QUEUE_GROUP_GENERAL, vehicle["queue_group"] or QUEUE_GROUP_GENERAL),
+                ).fetchone()[0]
+            elif vehicle["status"] == QUEUE_STATUS_ASSIGNED:
+                new_status = QUEUE_STATUS_ASSIGNED
+                new_queue_position = None
+            else:
+                new_status = QUEUE_STATUS_ACTIVE
+                if new_queue_position is None:
+                    new_queue_position = db.execute(
+                        """
+                        SELECT COALESCE(MAX(queue_position), 0) + 1
+                        FROM vehicles
+                        WHERE id != ? AND status = 'QUEUED' AND COALESCE(queue_group, ?) = ?
+                        """,
+                        (vehicle_id, QUEUE_GROUP_GENERAL, vehicle["queue_group"] or QUEUE_GROUP_GENERAL),
+                    ).fetchone()[0]
+            rejected_at = None
+            rejection_reason = ""
 
         db.execute(
             """
@@ -2875,11 +2902,11 @@ def save_quality_inspection(vehicle_id: str, user: sqlite3.Row, payload: Dict[st
         compact_queue(db)
 
     quality_labels = {
-        QUALITY_APPROVED: ("✅ Vehículo APTO", "apto"),
-        QUALITY_REWORK: ("🔧 Vehículo en ARREGLOS", "arreglos"),
-        QUALITY_REJECTED: ("❌ Vehículo RECHAZADO por calidad", "rechazo-calidad"),
+        QUALITY_APPROVED: ("Vehículo APTO", "apto"),
+        QUALITY_REWORK: ("Vehículo en ARREGLOS", "arreglos"),
+        QUALITY_REJECTED: ("Vehículo RECHAZADO por calidad", "rechazo-calidad"),
     }
-    label, ntag = quality_labels.get(decision, ("📋 Calidad actualizada", "calidad"))
+    label, ntag = quality_labels.get(decision, ("Calidad actualizada", "calidad"))
     with get_connection() as db:
         v = db.execute("SELECT plate, driver_name FROM vehicles WHERE id = ?", (vehicle_id,)).fetchone()
     if v:

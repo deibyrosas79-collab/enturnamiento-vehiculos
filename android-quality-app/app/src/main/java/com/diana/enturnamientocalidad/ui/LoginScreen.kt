@@ -160,7 +160,7 @@ fun LoginScreen(
                                         fontWeight = FontWeight.ExtraBold,
                                     )
                                     Text(
-                                        text = "Inspeccion movil sincronizada con el programa principal.",
+                                        text = "Inspección móvil sincronizada con el programa principal.",
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = Color.White.copy(alpha = 0.88f),
                                     )
@@ -196,7 +196,7 @@ fun LoginScreen(
                             fontWeight = FontWeight.Bold,
                         )
                         Text(
-                            text = "Usa tu cuenta autorizada para revisar vehiculos, cargar evidencias y aprobar inspecciones en tiempo real.",
+                            text = "Usa tu cuenta autorizada para revisar vehículos, cargar evidencias y aprobar inspecciones en tiempo real.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -266,7 +266,7 @@ fun LoginScreen(
                                 verticalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
                                 Text(
-                                    text = "Sincronizacion activa",
+                            text = "Sincronización activa",
                                     style = MaterialTheme.typography.labelLarge,
                                     color = MaterialTheme.colorScheme.primary,
                                 )

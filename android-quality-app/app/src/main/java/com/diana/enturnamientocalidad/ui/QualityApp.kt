@@ -14,11 +14,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import androidx.compose.ui.unit.dp
+import com.diana.enturnamientocalidad.data.model.VehicleDto
 import kotlinx.coroutines.delay
 
 @Composable
@@ -104,9 +105,10 @@ fun QualityApp(viewModel: QualityViewModel) {
                 QualityStatusScreen(
                     padding = padding,
                     title = "Pendientes por revisar",
-                    subtitle = "Vehiculos recien enturnados que aun no tienen checklist completo.",
+                    subtitle = "Vehículos recién enturnados que aún no tienen checklist completo.",
                     vehicles = uiState.pending,
                     allowReview = true,
+                    actionLabel = "Abrir revisión",
                     onBack = { navController.popBackStack() },
                     onOpenInspection = { vehicle ->
                         InspectionRoutesHolder.vehicle = vehicle
@@ -117,10 +119,11 @@ fun QualityApp(viewModel: QualityViewModel) {
             composable("status/rework") {
                 QualityStatusScreen(
                     padding = padding,
-                    title = "Vehiculos en arreglos",
+                    title = "Vehículos en arreglos",
                     subtitle = "Unidades revisadas que requieren ajustes antes de aprobarse.",
                     vehicles = uiState.rework,
                     allowReview = true,
+                    actionLabel = "Abrir revisión",
                     onBack = { navController.popBackStack() },
                     onOpenInspection = { vehicle ->
                         InspectionRoutesHolder.vehicle = vehicle
@@ -131,23 +134,31 @@ fun QualityApp(viewModel: QualityViewModel) {
             composable("status/approved") {
                 QualityStatusScreen(
                     padding = padding,
-                    title = "Vehiculos aptos",
-                    subtitle = "Consulta los vehiculos aptos del dia con su informacion consolidada.",
+                    title = "Vehículos aptos",
+                    subtitle = "Consulta los vehículos aptos del día y corrige el estado si fue marcado por error.",
                     vehicles = uiState.approved,
-                    allowReview = false,
+                    allowReview = true,
+                    actionLabel = "Editar estado",
                     onBack = { navController.popBackStack() },
-                    onOpenInspection = {},
+                    onOpenInspection = { vehicle ->
+                        InspectionRoutesHolder.vehicle = vehicle
+                        navController.navigate("inspection")
+                    },
                 )
             }
             composable("status/rejected") {
                 QualityStatusScreen(
                     padding = padding,
-                    title = "Vehiculos rechazados",
-                    subtitle = "Consulta los rechazados del dia y sus observaciones.",
+                    title = "Vehículos rechazados",
+                    subtitle = "Consulta los rechazados del día y cambia el estado si fue registrado por error.",
                     vehicles = uiState.rejected,
-                    allowReview = false,
+                    allowReview = true,
+                    actionLabel = "Editar estado",
                     onBack = { navController.popBackStack() },
-                    onOpenInspection = {},
+                    onOpenInspection = { vehicle ->
+                        InspectionRoutesHolder.vehicle = vehicle
+                        navController.navigate("inspection")
+                    },
                 )
             }
             composable("inspection") {
@@ -178,5 +189,5 @@ fun QualityApp(viewModel: QualityViewModel) {
 }
 
 object InspectionRoutesHolder {
-    var vehicle: com.diana.enturnamientocalidad.data.model.VehicleDto? = null
+    var vehicle: VehicleDto? = null
 }
