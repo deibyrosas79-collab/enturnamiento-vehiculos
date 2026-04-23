@@ -798,6 +798,7 @@ function findVehicleById(vehicleId) {
     ...(state.appState?.queued || []),
     ...(state.appState?.assigned || []),
     ...(state.appState?.rejected || []),
+    ...(state.historyRows || []),
   ];
   return allVehicles.find((item) => item.id === vehicleId) || null;
 }
@@ -1811,11 +1812,11 @@ function qualityBadge(status) {
 
 function renderVehicleSupports(item) {
   const links = [];
-  if (item.driverSelfieUrl) {
-    links.push(renderSupportLink(item.driverSelfieUrl, "Ver selfie"));
+  if (item.driverSelfieUrl || item.hasDriverSelfie) {
+    links.push(renderSupportLink(item, "Ver selfie", "selfie"));
   }
-  if (item.driverSignatureUrl) {
-    links.push(renderSupportLink(item.driverSignatureUrl, "Ver firma"));
+  if (item.driverSignatureUrl || item.hasDriverSignature) {
+    links.push(renderSupportLink(item, "Ver firma", "signature"));
   }
   const evidenceCount = item.latestInspection?.evidenceCount ?? getChecklistEvidenceCount(item.latestInspection?.checklist);
   if (evidenceCount > 0) {
@@ -1824,10 +1825,13 @@ function renderVehicleSupports(item) {
   return links.length ? `<div class="support-links">${links.join("")}</div>` : `<span class="muted-text">Sin soportes visuales.</span>`;
 }
 
-function renderSupportLink(url, label) {
-  if (!url) return `<span class="muted-text">Sin archivo</span>`;
-  const mediaKey = registerPreviewMedia(url, label);
-  return `<button class="support-link" type="button" data-media-preview-key="${mediaKey}">${escapeHtml(label)}</button>`;
+function renderSupportLink(item, label, supportType) {
+  const url = supportType === "selfie" ? item.driverSelfieUrl : item.driverSignatureUrl;
+  if (url) {
+    const mediaKey = registerPreviewMedia(url, label);
+    return `<button class="support-link" type="button" data-media-preview-key="${mediaKey}">${escapeHtml(label)}</button>`;
+  }
+  return `<button class="support-link" type="button" data-support-preview-id="${item.id}" data-support-type="${supportType}">${escapeHtml(label)}</button>`;
 }
 
 function getChecklistEvidenceCount(checklist) {
@@ -1842,11 +1846,32 @@ function handleMediaPreviewClick(event) {
     openMediaPreview(mediaEntry?.url || "", mediaEntry?.label || "Vista previa");
     return;
   }
+  const supportButton = event.target.closest("[data-support-preview-id]");
+  if (supportButton) {
+    openVehicleSupportPreview(supportButton.dataset.supportPreviewId, supportButton.dataset.supportType);
+    return;
+  }
   const evidenceButton = event.target.closest("[data-evidence-preview-id]");
   if (evidenceButton) {
     const vehicle = findVehicleById(evidenceButton.dataset.evidencePreviewId);
     openChecklistEvidencePreview(vehicle);
   }
+}
+
+async function openVehicleSupportPreview(vehicleId, supportType) {
+  const label = supportType === "signature" ? "Ver firma" : "Ver selfie";
+  const vehicle = findVehicleById(vehicleId);
+  let url = supportType === "signature" ? vehicle?.driverSignatureUrl : vehicle?.driverSelfieUrl;
+  if (!url) {
+    try {
+      const detail = await fetchVehicleDetail(vehicleId);
+      url = supportType === "signature" ? detail?.driverSignatureUrl : detail?.driverSelfieUrl;
+    } catch (error) {
+      showToast(error.message || "No se pudo cargar el soporte solicitado.");
+      return;
+    }
+  }
+  openMediaPreview(url || "", label);
 }
 
 function openMediaPreview(url, label) {

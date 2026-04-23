@@ -1044,6 +1044,8 @@ def serialize_vehicle(
         "driverId": row["driver_id"],
         "driverPhone": row["driver_phone"],
         "emptyWeightKg": row["empty_weight_kg"],
+        "hasDriverSelfie": bool(row["driver_selfie_url"]),
+        "hasDriverSignature": bool(row["driver_signature_url"]),
         "driverSelfieUrl": row["driver_selfie_url"] if include_media else None,
         "driverSignatureUrl": row["driver_signature_url"] if include_media else None,
         "destinationId": row["destination_id"],
@@ -1150,6 +1152,8 @@ def build_history_rows(
                 "driverId": vehicle["driverId"],
                 "driverPhone": vehicle["driverPhone"],
                 "emptyWeightKg": vehicle["emptyWeightKg"],
+                "hasDriverSelfie": vehicle.get("hasDriverSelfie", False),
+                "hasDriverSignature": vehicle.get("hasDriverSignature", False),
                 "destinations": vehicle.get("destinationOptions", []),
                 "cityTurns": vehicle.get("cityTurns", {}),
                 "status": vehicle["status"],
@@ -1160,8 +1164,8 @@ def build_history_rows(
                 "assignedAt": vehicle["assignedAt"],
                 "rejectedAt": vehicle["rejectedAt"],
                 "rejectionReason": vehicle["rejectionReason"],
-                "driverSelfieUrl": vehicle["driverSelfieUrl"],
-                "driverSignatureUrl": vehicle["driverSignatureUrl"],
+                "driverSelfieUrl": vehicle.get("driverSelfieUrl"),
+                "driverSignatureUrl": vehicle.get("driverSignatureUrl"),
                 "qualityReviewedAt": latest.get("reviewedAt") if latest else None,
                 "qualityReviewedDate": reviewed_local.strftime("%Y-%m-%d") if reviewed_local else "",
                 "qualityReviewedTime": reviewed_local.strftime("%H:%M") if reviewed_local else "",
@@ -1802,16 +1806,16 @@ def get_user_state(user: sqlite3.Row, origin: str) -> Dict[str, Any]:
         inspections_by_vehicle = load_inspections_by_vehicle(db, include_media=False)
 
         queued = [
-            serialize_vehicle(row, turn_positions, latest_inspections, destination_lookup, city_turn_map, include_media=True, inspection_summary_only=True)
+            serialize_vehicle(row, turn_positions, latest_inspections, destination_lookup, city_turn_map, include_media=False, inspection_summary_only=True)
             for row in queued_rows
         ]
         assigned = [
-            serialize_vehicle(row, turn_positions, latest_inspections, destination_lookup, city_turn_map, include_media=True, inspection_summary_only=True)
+            serialize_vehicle(row, turn_positions, latest_inspections, destination_lookup, city_turn_map, include_media=False, inspection_summary_only=True)
             for row in vehicles
             if row["status"] == QUEUE_STATUS_ASSIGNED
         ]
         rejected = [
-            serialize_vehicle(row, turn_positions, latest_inspections, destination_lookup, city_turn_map, include_media=True, inspection_summary_only=True)
+            serialize_vehicle(row, turn_positions, latest_inspections, destination_lookup, city_turn_map, include_media=False, inspection_summary_only=True)
             for row in vehicles
             if row["status"] == QUEUE_STATUS_REJECTED
         ]
@@ -1925,10 +1929,27 @@ def get_history_rows_for_user(user: sqlite3.Row) -> List[Dict[str, Any]]:
         latest_inspections = load_latest_inspections(db, include_media=False)
         inspections_by_vehicle = load_inspections_by_vehicle(db, include_media=False)
         serialized = [
-            serialize_vehicle(row, turn_positions, latest_inspections, destination_lookup, city_turn_map, include_media=True, inspection_summary_only=True)
+            serialize_vehicle(row, turn_positions, latest_inspections, destination_lookup, city_turn_map, include_media=False, inspection_summary_only=True)
             for row in vehicles
         ]
     return build_history_rows(serialized, inspections_by_vehicle)
+
+
+def build_public_city_turn_counts(city_queue_lists: Dict[str, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for city, vehicles in sorted(city_queue_lists.items(), key=lambda item: item[0]):
+        counts = {
+            QUEUE_GROUP_GENERAL: 0,
+            QUEUE_GROUP_DIANA: 0,
+        }
+        for vehicle in vehicles:
+            queue_group = vehicle.get("queueGroup") or QUEUE_GROUP_GENERAL
+            counts[queue_group] = counts.get(queue_group, 0) + 1
+        rows.append({
+            "city": city,
+            "counts": counts,
+        })
+    return rows
 
 
 def get_vehicle_detail_for_user(user: sqlite3.Row, vehicle_id: str) -> Dict[str, Any]:
@@ -2702,11 +2723,11 @@ def build_public_tracking(token: str) -> Dict[str, Any]:
         latest_inspections = load_latest_inspections(db, include_media=False)
         front_vehicle = queue_group_rows[0] if queue_group_rows else None
     return {
-        "vehicle": serialize_vehicle(vehicle, turn_positions, latest_inspections, destination_lookup, city_turn_map, include_media=True, inspection_summary_only=True),
+        "vehicle": serialize_vehicle(vehicle, turn_positions, latest_inspections, destination_lookup, city_turn_map, include_media=False, inspection_summary_only=True),
         "queueSize": len(queue_group_rows),
         "currentTurnPosition": turn_positions.get(vehicle["id"]),
         "frontOfQueue": (
-            serialize_vehicle(front_vehicle, turn_positions, latest_inspections, destination_lookup, city_turn_map, include_media=True, inspection_summary_only=True)
+            serialize_vehicle(front_vehicle, turn_positions, latest_inspections, destination_lookup, city_turn_map, include_media=False, inspection_summary_only=True)
             if front_vehicle
             else None
         ),
@@ -2732,9 +2753,8 @@ def get_public_config(origin: str, center_id: Optional[str] = None) -> Dict[str,
             "SELECT * FROM vehicles WHERE status = 'QUEUED' AND center_id = ? ORDER BY queue_position, created_at",
             (center["id"],),
         ).fetchall()
-        turn_positions = calculate_turn_positions(queued_rows)
-        city_turn_map, city_queue_lists = build_city_turn_maps(queued_rows, destination_lookup)
-        latest_inspections = load_latest_inspections(db, include_media=False)
+        _turn_positions = calculate_turn_positions(queued_rows)
+        _city_turn_map, city_queue_lists = build_city_turn_maps(queued_rows, destination_lookup)
     return {
         "siteName": center["name"],
         "centerId": center["id"],
@@ -2748,14 +2768,7 @@ def get_public_config(origin: str, center_id: Optional[str] = None) -> Dict[str,
         "defaultSiteLat": center["siteLat"],
         "defaultSiteLng": center["siteLng"],
         "centers": centers,
-        "cityQueues": [
-            {"city": city, "vehicles": rows}
-            for city, rows in sorted(city_queue_lists.items(), key=lambda item: item[0])
-        ],
-        "liveQueue": [
-            serialize_vehicle(row, turn_positions, latest_inspections, destination_lookup, city_turn_map, include_media=True, inspection_summary_only=True)
-            for row in queued_rows[:12]
-        ],
+        "cityTurnCounts": build_public_city_turn_counts(city_queue_lists),
     }
 
 

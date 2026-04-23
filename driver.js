@@ -65,8 +65,6 @@ function bootstrap() {
   elements.publicCarrierId.addEventListener("change", () => {
     state.activeQueueGroup = selectedQueueGroup();
     renderSelectedCityTurnsPreview();
-    renderQueue(state.config?.liveQueue || []);
-    renderCityQueues(state.config?.cityQueues || []);
   });
   elements.publicSelfieInput.addEventListener("change", handleSelfieChange);
   elements.clearSignatureButton.addEventListener("click", clearSignature);
@@ -90,10 +88,6 @@ async function loadConfig(centerIdOverride = state.centerId) {
     state.centerId = data.centerId || centerIdOverride || state.centerId;
     populateSelect(elements.publicCarrierId, data.carriers, "Selecciona transportadora", (item) => `${item.code} - ${item.name}`);
     renderDestinationMenu(data.destinations || []);
-    if (state.trackingToken) {
-      renderQueue(data.liveQueue || []);
-      renderCityQueues(data.cityQueues || []);
-    }
     updateHero(data);
     if (!data.siteConfigured) {
       state.gpsAllowed = false;
@@ -110,6 +104,14 @@ async function loadConfig(centerIdOverride = state.centerId) {
 async function loadQueueOnly() {
   if (state.trackingToken) {
     return;
+  }
+  try {
+    const data = await request(withCenterQuery("/public/config", state.centerId));
+    if (state.config) {
+      state.config.cityTurnCounts = data.cityTurnCounts || [];
+    }
+  } catch {
+    // noop
   }
   renderSelectedCityTurnsPreview();
 }
@@ -213,9 +215,8 @@ function renderSelectedCityTurnsPreview() {
   const chips = destinationIds.map((id) => {
     const destination = state.config?.destinations?.find((item) => item.id === id);
     if (!destination) return "";
-    const cityGroup = (state.config?.cityQueues || []).find((item) => item.city === destination.city);
-    const visibleRows = (cityGroup?.vehicles || []).filter((row) => !queueGroup || row.queueGroup === queueGroup);
-    const estimatedTurn = visibleRows.length + 1;
+    const cityGroup = (state.config?.cityTurnCounts || []).find((item) => item.city === destination.city);
+    const estimatedTurn = ((cityGroup?.counts?.[queueGroup || "GENERAL"]) || 0) + 1;
     return `<span class="city-turn-chip">${escapeHtml(destination.city)}: turno estimado ${estimatedTurn}</span>`;
   }).filter(Boolean);
   elements.publicDestinationTurns.innerHTML = chips.join("");
@@ -346,10 +347,6 @@ function renderTracking(data) {
         <p><strong>Destinos:</strong> ${escapeHtml(renderDestinationsText(vehicle))}</p>
         ${renderTrackingCityCards(vehicle, cityTurns)}
         ${observations ? `<div class="tracking-note"><strong>Observaciones:</strong> ${escapeHtml(observations)}</div>` : ""}
-      </div>
-      <div class="driver-media-grid">
-        ${renderTrackingMedia(vehicle.driverSelfieUrl, "Selfie")}
-        ${renderTrackingMedia(vehicle.driverSignatureUrl, "Firma")}
       </div>
     </div>
     <p class="muted-text">Actualiza automaticamente cada 20 segundos. Frente de la fila: ${escapeHtml(data.frontOfQueue?.plate || "Sin fila")}</p>
