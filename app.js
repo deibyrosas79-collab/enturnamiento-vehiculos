@@ -47,6 +47,7 @@ const SUITABILITY_OPTIONS = ["Cadenas", "Mayoristas", "Bodegas y operadores", "S
 const state = {
   user: null,
   appState: null,
+  historyRows: [],
   currentView: "dashboard",
   queueTab: "queued",
   rejectVehicle: null,
@@ -258,6 +259,10 @@ async function refreshAppState(options = {}) {
   const previousQueuedIds = new Set(lastSeenQueuedIds);
   state.user = data.user;
   state.appState = data;
+  if (state.currentView !== "history" && state.currentView !== "reports") {
+    state.historyRows = [];
+    state.suitabilityInsights = null;
+  }
   lastSeenQueuedIds = collectQueuedVehicleIds(data);
   if (!silent) {
     showApp();
@@ -265,11 +270,27 @@ async function refreshAppState(options = {}) {
   } else if (!hasBlockingModalOpen()) {
     renderApp();
   }
+  if (state.currentView === "history" || state.currentView === "reports") {
+    await ensureHistoryLoaded(true);
+  }
   if (notifyNewQueued && previousQueuedIds.size) {
     notifyAboutNewQueuedVehicles(collectNewQueuedVehicles(data, previousQueuedIds));
   }
   startAppStatePolling();
   ensureBrowserNotificationPermission();
+}
+
+async function ensureHistoryLoaded(force = false) {
+  if (!state.user) return [];
+  if (!force && state.historyRows?.length) return state.historyRows;
+  const rows = await request("/history");
+  state.historyRows = Array.isArray(rows) ? rows : [];
+  state.suitabilityInsights = buildSuitabilityInsights(state.historyRows);
+  return state.historyRows;
+}
+
+async function fetchVehicleDetail(vehicleId) {
+  return request(`/vehicles/${encodeURIComponent(vehicleId)}/detail`);
 }
 
 async function submitLogin(event) {
@@ -285,6 +306,8 @@ async function submitLogin(event) {
     });
     state.user = data.user;
     state.appState = data;
+    state.historyRows = [];
+    state.suitabilityInsights = null;
     elements.loginForm.reset();
     showApp();
     renderApp();
@@ -347,10 +370,49 @@ function hasBlockingModalOpen() {
 }
 
 function collectQueuedVehicles(data = state.appState) {
-  return [
+  return (data?.queued) || [
     ...((data?.queueGroups?.general) || []),
     ...((data?.queueGroups?.dianaAgricola) || []),
   ];
+}
+
+function deriveQueueGroups(data = state.appState) {
+  if (data?.queueGroups?.general || data?.queueGroups?.dianaAgricola) {
+    return {
+      general: data?.queueGroups?.general || [],
+      dianaAgricola: data?.queueGroups?.dianaAgricola || [],
+    };
+  }
+  const queued = data?.queued || [];
+  return {
+    general: queued.filter((item) => item.queueGroup !== "DIANA_AGRICOLA"),
+    dianaAgricola: queued.filter((item) => item.queueGroup === "DIANA_AGRICOLA"),
+  };
+}
+
+function deriveQualityBuckets(data = state.appState) {
+  if (data?.quality?.pending || data?.quality?.rework || data?.quality?.approved || data?.quality?.rejected) {
+    return {
+      pending: data?.quality?.pending || [],
+      rework: data?.quality?.rework || [],
+      approved: data?.quality?.approved || [],
+      rejected: data?.quality?.rejected || [],
+      dailyApprovedCount: data?.quality?.dailyApprovedCount ?? 0,
+      dailyRejectedCount: data?.quality?.dailyRejectedCount ?? 0,
+      pendingCount: data?.quality?.pendingCount ?? (data?.quality?.pending || []).length,
+    };
+  }
+  const queued = data?.queued || [];
+  const rejected = data?.rejected || [];
+  return {
+    pending: queued.filter((item) => ["PENDING", "IN_PROGRESS"].includes(item.qualityStatus)),
+    rework: queued.filter((item) => item.qualityStatus === "REWORK"),
+    approved: queued.filter((item) => item.qualityStatus === "APPROVED"),
+    rejected: rejected.filter((item) => item.qualityStatus === "REJECTED"),
+    dailyApprovedCount: data?.quality?.dailyApprovedCount ?? 0,
+    dailyRejectedCount: data?.quality?.dailyRejectedCount ?? 0,
+    pendingCount: data?.quality?.pendingCount ?? queued.filter((item) => ["PENDING", "IN_PROGRESS"].includes(item.qualityStatus)).length,
+  };
 }
 
 function collectQueuedVehicleIds(data = state.appState) {
@@ -387,10 +449,15 @@ function notifyAboutNewQueuedVehicles(vehicles) {
   }
 }
 
-function switchView(view) {
+async function switchView(view) {
   state.currentView = view;
   elements.navTabs.forEach((button) => button.classList.toggle("active", button.dataset.view === view));
   elements.appViews.forEach((panel) => panel.classList.toggle("active", panel.id === `${view}View`));
+  if (view === "history" || view === "reports") {
+    await ensureHistoryLoaded();
+    if (view === "history") renderHistoryTable();
+    if (view === "reports") renderReports();
+  }
 }
 
 function switchQueueTab(tabName) {
@@ -405,7 +472,6 @@ function renderApp() {
   const {
     user,
     queued,
-    quality,
     settings,
     destinations,
     carriers,
@@ -414,6 +480,7 @@ function renderApp() {
     analytics,
     permissions,
   } = state.appState;
+  const quality = deriveQualityBuckets(state.appState);
   elements.welcomeText.textContent = `Hola, ${user.fullName}`;
   elements.roleText.textContent = `Rol activo: ${translateRole(user.role)}${user.centerName ? ` · ${user.centerName}` : ""}`;
   applyRoleVisibility(permissions);
@@ -429,7 +496,7 @@ function renderApp() {
   elements.publicRegistrationUrl.value = state.appState.publicRegistrationUrl;
   elements.publicQrImage.src = state.appState.publicQrUrl;
   elements.countQueued.textContent = analytics.queuedCount ?? queued.length;
-  elements.countQualityPending.textContent = analytics.qualityPendingCount ?? quality.pending.length;
+  elements.countQualityPending.textContent = analytics.qualityPendingCount ?? quality.pendingCount ?? quality.pending.length;
   elements.countQualityApproved.textContent = analytics.dailyApprovedCount ?? quality.dailyApprovedCount ?? 0;
   elements.countRejected.textContent = analytics.dailyRejectedCount ?? quality.dailyRejectedCount ?? 0;
   elements.qualityPendingCount.textContent = quality.pending.length;
@@ -446,7 +513,7 @@ function renderApp() {
     elements.siteRadiusM.value = settings.siteRadiusM || "180";
     elements.geofenceEnabled.checked = settings.geofenceEnabled;
   }
-  state.suitabilityInsights = buildSuitabilityInsights(state.appState.history || []);
+  state.suitabilityInsights = buildSuitabilityInsights(state.historyRows || []);
 
   renderQueueTables();
   renderCityQueues();
@@ -581,9 +648,10 @@ function handleDashboardDestinationDocumentClick(event) {
 
 function renderQueueTables() {
   if (!state.appState) return;
+  const queueGroups = deriveQueueGroups(state.appState);
   if (state.queueTab === "queued") {
-    const generalRows = filterVehicles(state.appState.queueGroups?.general || []);
-    const dianaRows = filterVehicles(state.appState.queueGroups?.dianaAgricola || []);
+    const generalRows = filterVehicles(queueGroups.general || []);
+    const dianaRows = filterVehicles(queueGroups.dianaAgricola || []);
     const columns = [
       ["Turno", (item) => item.turnPosition ? `<span class="turn">${item.turnPosition}</span>` : "-"],
       ["Cola", (item) => escapeHtml(item.queueGroupLabel || "-")],
@@ -622,8 +690,8 @@ function renderQueueTables() {
 
   if (state.queueTab === "zones") {
     const activeRows = [
-      ...(state.appState.queueGroups?.general || []),
-      ...(state.appState.queueGroups?.dianaAgricola || []),
+      ...(queueGroups.general || []),
+      ...(queueGroups.dianaAgricola || []),
     ];
     const rows = filterZoneSummaryRows(buildZoneSummaryRows(activeRows));
     const columns = [
@@ -872,10 +940,11 @@ function bindMasterActions() {
 
 function renderQualityLists() {
   if (!state.appState) return;
-  renderQualityStack(elements.qualityPendingList, state.appState.quality.pending, true, "Sin pendientes.");
-  renderQualityStack(elements.qualityReworkList, state.appState.quality.rework, true, "Sin vehículos en arreglos.");
-  renderQualityStack(elements.qualityApprovedList, state.appState.quality.approved, false, "Sin vehículos aptos.");
-  renderQualityStack(elements.qualityRejectedList, state.appState.quality.rejected, false, "Sin rechazos de calidad.");
+  const quality = deriveQualityBuckets(state.appState);
+  renderQualityStack(elements.qualityPendingList, quality.pending, true, "Sin pendientes.");
+  renderQualityStack(elements.qualityReworkList, quality.rework, true, "Sin vehículos en arreglos.");
+  renderQualityStack(elements.qualityApprovedList, quality.approved, false, "Sin vehículos aptos.");
+  renderQualityStack(elements.qualityRejectedList, quality.rejected, false, "Sin rechazos de calidad.");
 }
 
 function renderQualityStack(container, rows, allowInspect, emptyText) {
@@ -922,7 +991,7 @@ function renderQualityStack(container, rows, allowInspect, emptyText) {
 
 function renderHistoryTable() {
   if (!state.appState) return;
-  const rows = filterHistoryRows(state.appState.history || []);
+  const rows = filterHistoryRows(state.historyRows || []);
   elements.historyTable.innerHTML = renderTable(getHistoryColumns(false), rows, "No hay historial registrado todavía.");
   bindRecordActions(elements.historyTable);
 }
@@ -1318,27 +1387,32 @@ async function submitRejectVehicle(event) {
   }
 }
 
-function openQualityModal(vehicle) {
-  state.qualityVehicle = vehicle;
-  const inspection = vehicle.latestInspection || {};
-  elements.qualityModalTitle.textContent = `Checklist ${vehicle.plate}`;
-  elements.qualityMeta.textContent = `Conductor: ${vehicle.driverName} | Cola: ${vehicle.queueGroupLabel || "-"} | Turno: ${vehicle.turnPosition || "-"} | Responsable: ${state.user.fullName}`;
-  elements.observationsText.value = inspection.observationsText || "";
-  elements.finalDecision.value = inspection.finalDecision || (vehicle.qualityStatus === "REWORK" ? "REWORK" : "APPROVED");
-  document.querySelectorAll("[name='suitability']").forEach((checkbox) => {
-    checkbox.checked = (inspection.suitability || []).includes(checkbox.value);
-  });
-  CHECKLIST_ITEMS.forEach((item) => {
-    const wrapper = elements.qualityChecklistGrid.querySelector(`[data-check-item='${item.key}']`);
-    const select = wrapper.querySelector("[data-field='status']");
-    const existing = inspection.checklist?.[item.key];
-    select.value = existing?.status || "";
-    const poisonInput = wrapper.querySelector("[data-field='poison']");
-    if (poisonInput) poisonInput.value = existing?.poison || "";
-    const input = wrapper.querySelector("[data-field='evidence']");
-    if (input) input.value = "";
-  });
-  elements.qualityModal.classList.remove("hidden");
+async function openQualityModal(vehicle) {
+  try {
+    const detail = await fetchVehicleDetail(vehicle.id);
+    state.qualityVehicle = detail;
+    const inspection = detail.latestInspection || {};
+    elements.qualityModalTitle.textContent = `Checklist ${detail.plate}`;
+    elements.qualityMeta.textContent = `Conductor: ${detail.driverName} | Cola: ${detail.queueGroupLabel || "-"} | Turno: ${detail.turnPosition || "-"} | Responsable: ${state.user.fullName}`;
+    elements.observationsText.value = inspection.observationsText || "";
+    elements.finalDecision.value = inspection.finalDecision || (detail.qualityStatus === "REWORK" ? "REWORK" : "APPROVED");
+    document.querySelectorAll("[name='suitability']").forEach((checkbox) => {
+      checkbox.checked = (inspection.suitability || []).includes(checkbox.value);
+    });
+    CHECKLIST_ITEMS.forEach((item) => {
+      const wrapper = elements.qualityChecklistGrid.querySelector(`[data-check-item='${item.key}']`);
+      const select = wrapper.querySelector("[data-field='status']");
+      const existing = inspection.checklist?.[item.key];
+      select.value = existing?.status || "";
+      const poisonInput = wrapper.querySelector("[data-field='poison']");
+      if (poisonInput) poisonInput.value = existing?.poison || "";
+      const input = wrapper.querySelector("[data-field='evidence']");
+      if (input) input.value = "";
+    });
+    elements.qualityModal.classList.remove("hidden");
+  } catch (error) {
+    showToast(error.message || "No se pudo cargar el checklist del vehículo.");
+  }
 }
 
 function closeQualityModal() {
@@ -1536,7 +1610,7 @@ function getHistoryColumns(forExport = false) {
 }
 
 function exportHistoryToExcel() {
-  const rows = filterHistoryRows(state.appState?.history || []);
+  const rows = filterHistoryRows(state.historyRows || []);
   if (!rows.length) {
     showToast("No hay registros para exportar en este informe.");
     return;
@@ -1584,7 +1658,7 @@ function exportHistoryToExcel() {
 }
 
 async function exportHistoryToPdf() {
-  const rows = filterHistoryRows(state.appState?.history || []);
+  const rows = filterHistoryRows(state.historyRows || []);
   if (!rows.length) {
     showToast("No hay registros para imprimir en PDF.");
     return;
@@ -1743,7 +1817,7 @@ function renderVehicleSupports(item) {
   if (item.driverSignatureUrl) {
     links.push(renderSupportLink(item.driverSignatureUrl, "Ver firma"));
   }
-  const evidenceCount = getChecklistEvidenceCount(item.latestInspection?.checklist);
+  const evidenceCount = item.latestInspection?.evidenceCount ?? getChecklistEvidenceCount(item.latestInspection?.checklist);
   if (evidenceCount > 0) {
     links.push(`<button class="support-link" type="button" data-evidence-preview-id="${item.id}">Ver evidencias (${evidenceCount})</button>`);
   }
@@ -1793,8 +1867,17 @@ function openMediaPreview(url, label) {
   elements.mediaPreviewModal.classList.remove("hidden");
 }
 
-function openChecklistEvidencePreview(vehicle) {
-  const checklist = vehicle?.latestInspection?.checklist || {};
+async function openChecklistEvidencePreview(vehicle) {
+  let detail = vehicle;
+  if (!detail?.latestInspection?.checklist) {
+    try {
+      detail = await fetchVehicleDetail(vehicle.id);
+    } catch (error) {
+      showToast(error.message || "No se pudieron cargar las evidencias del checklist.");
+      return;
+    }
+  }
+  const checklist = detail?.latestInspection?.checklist || {};
   const evidences = [];
   Object.values(checklist).forEach((item) => {
     (item?.evidences || []).filter(Boolean).forEach((url, index) => {
@@ -1808,7 +1891,7 @@ function openChecklistEvidencePreview(vehicle) {
     showToast("Ese vehículo no tiene evidencias fotográficas en el checklist.");
     return;
   }
-  elements.mediaPreviewTitle.textContent = `Evidencias checklist ${vehicle?.plate || ""}`.trim();
+  elements.mediaPreviewTitle.textContent = `Evidencias checklist ${detail?.plate || ""}`.trim();
   elements.mediaPreviewBody.innerHTML = `
     <div class="media-preview-grid">
       ${evidences.map((item) => `
@@ -1816,7 +1899,7 @@ function openChecklistEvidencePreview(vehicle) {
           <img src="${item.url}" alt="${escapeHtml(item.label)}" />
           <figcaption>${escapeHtml(item.label)}</figcaption>
           <div class="media-preview-actions">
-            <a class="support-link download" href="${item.url}" download="${escapeHtml(buildEvidenceFileName(`${vehicle?.plate || "vehiculo"}-${item.label}`))}">Descargar evidencia</a>
+            <a class="support-link download" href="${item.url}" download="${escapeHtml(buildEvidenceFileName(`${detail?.plate || "vehiculo"}-${item.label}`))}">Descargar evidencia</a>
           </div>
         </figure>
       `).join("")}
