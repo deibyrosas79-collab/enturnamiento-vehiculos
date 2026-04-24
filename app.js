@@ -192,6 +192,19 @@ function setLabelText(inputSelector, text) {
   }
 }
 
+function setPanelText(panelSelector, title, description) {
+  const panel = document.querySelector(panelSelector);
+  if (!panel) return;
+  const titleNode = panel.querySelector(".panel-heading h3");
+  const descriptionNode = panel.querySelector(".panel-heading p");
+  if (titleNode) {
+    titleNode.replaceChildren(document.createTextNode(title));
+  }
+  if (descriptionNode) {
+    descriptionNode.replaceChildren(document.createTextNode(description));
+  }
+}
+
 function setNodeText(selector, text) {
   document.querySelector(selector)?.replaceChildren(document.createTextNode(text));
 }
@@ -239,6 +252,34 @@ function applyStaticTextOverrides() {
   setNodeText("#qualityView .panel:nth-of-type(2) .panel-heading h3", "Vehículos en arreglos");
   setNodeText("#qualityView .panel:nth-of-type(3) .panel-heading h3", "Vehículos aptos");
   setNodeText("#qualityView .panel:nth-of-type(4) .panel-heading h3", "Vehículos rechazados");
+  setPanelText(
+    "#destinationsSection",
+    "Destinos",
+    "Administra las ciudades y zonas disponibles para el enturnamiento.",
+  );
+  setPanelText(
+    "#carriersSection",
+    "Transportadoras",
+    "La transportadora 4000801 - DIANA AGRICOLA S.A.S tendrá su fila paralela automática.",
+  );
+  setPanelText(
+    "#usersSection",
+    "Usuarios",
+    "Crea usuarios, contraseñas, roles y centros autorizados para la operación.",
+  );
+  setLabelText("#destinationZone", "Zona");
+  setLabelText("#carrierCode", "Código");
+  setLabelText("#carrierName", "Transportadora");
+  setLabelText("#newUsername", "Usuario");
+  setLabelText("#newDisplayName", "Nombre");
+  setLabelText("#newRole", "Rol");
+  setLabelText("#newCenterId", "Centro / CEDI");
+  setLabelText("#newPassword", "Contraseña");
+  setLabelText("#siteCenterId", "Centro / CEDI");
+  setLabelText("#siteName", "Nombre de la sede");
+  setLabelText("#siteLat", "Latitud");
+  setLabelText("#siteLng", "Longitud");
+  setLabelText("#siteRadiusM", "Radio permitido (m)");
 }
 
 function bindEvents() {
@@ -763,8 +804,8 @@ function renderQueueTables() {
       "Carros enturnados por zona",
       "Aquí ves únicamente la cantidad de vehículos enturnados por cada zona de destino.",
       `
-        ${renderTable(columns, rows, "No hay vehículos enturnados para consolidar por zona.")}
         ${renderZoneSummaryTotals(totals)}
+        ${renderTable(columns, rows, "No hay vehículos enturnados para consolidar por zona.")}
       `,
       "Filtrar zona o cantidad en este resumen...",
     );
@@ -1558,6 +1599,7 @@ function renderTable(columns, rows, emptyText) {
 function renderZoneSummaryTotals(totals) {
   return `
     <div class="zone-summary-totals">
+      <h4>Resumen general</h4>
       ${totals.map((item) => `
         <article class="zone-summary-totals-card">
           <span>${escapeHtml(item.label)}</span>
