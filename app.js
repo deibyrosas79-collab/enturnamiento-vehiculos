@@ -192,38 +192,53 @@ function setLabelText(inputSelector, text) {
   }
 }
 
+function setNodeText(selector, text) {
+  document.querySelector(selector)?.replaceChildren(document.createTextNode(text));
+}
+
 function applyStaticTextOverrides() {
-  document.querySelector(".hero .hero-text")?.replaceChildren(
-    document.createTextNode(
-      "Registro logístico, turnos por transportadora, checklist de calidad, historial operativo y administración centralizada en tiempo real.",
-    ),
+  setNodeText(
+    ".hero .hero-text",
+    "Registro logístico, turnos por transportadora, checklist de calidad, historial operativo y administración centralizada en tiempo real.",
   );
   document.querySelector(".hero-logo")?.setAttribute("alt", "Logo Diana Logística");
-  document.querySelector("#authScreen h2")?.replaceChildren(document.createTextNode("Iniciar sesión"));
-  document.querySelector("#authScreen .panel-heading p:not(.eyebrow)")?.replaceChildren(
-    document.createTextNode("Ingresa con un usuario de logística, calidad o administrador."),
-  );
+  setNodeText("#authScreen h2", "Iniciar sesión");
+  setNodeText("#authScreen .panel-heading p:not(.eyebrow)", "Ingresa con un usuario de logística, calidad o administrador.");
   elements.refreshButton.textContent = "Actualizar información";
   elements.logoutButton.textContent = "Cerrar sesión";
-  document.querySelector('[data-view="dashboard"]')?.replaceChildren(document.createTextNode("Logística"));
-  document.querySelector('[data-view="settings"]')?.replaceChildren(document.createTextNode("Configuración"));
-  document.querySelector("#dashboardView .panel .panel-heading h3")?.replaceChildren(document.createTextNode("Registrar vehículo"));
-  document.querySelector("#dashboardView .panel .panel-heading p")?.replaceChildren(
-    document.createTextNode("Puedes escoger varias ciudades para el mismo vehículo. El sistema lo mostrará en cada lista de ciudad sin duplicar el registro único del vehículo."),
+  elements.openPublicPageButton.textContent = "Abrir registro QR";
+  setNodeText('[data-view="dashboard"]', "Logística");
+  setNodeText('[data-view="settings"]', "Configuración");
+  const dashboardPanels = document.querySelectorAll("#dashboardView > .panel");
+  const queuePanel = dashboardPanels[0];
+  const cityPanel = dashboardPanels[1];
+  setNodeText("#dashboardView .layout.two-columns .panel:first-child .panel-heading h3", "Registrar vehículo");
+  setNodeText(
+    "#dashboardView .layout.two-columns .panel:first-child .panel-heading p",
+    "Puedes escoger varias ciudades para el mismo vehículo. El sistema lo mostrará en cada lista de ciudad sin duplicar el registro único del vehículo.",
+  );
+  queuePanel?.querySelector(".panel-heading h3")?.replaceChildren(document.createTextNode("Vehículos operativos"));
+  queuePanel?.querySelector(".panel-heading p")?.replaceChildren(
+    document.createTextNode("Consulta la fila actual, los viajes asignados y los rechazados con soportes, tiempos y trazabilidad."),
+  );
+  cityPanel?.querySelector(".panel-heading h3")?.replaceChildren(document.createTextNode("Conteo de turnos por ciudad"));
+  cityPanel?.querySelector(".panel-heading p")?.replaceChildren(
+    document.createTextNode("Cada vehículo aparece en todas las ciudades que seleccionó, conservando un solo registro maestro."),
   );
   setLabelText("#driverId", "Cédula");
   document.querySelector("#driverId")?.setAttribute("placeholder", "Número de cédula");
   setLabelText("#emptyWeightKg", "P. vacío (kg)");
   setLabelText("#destinationId", "Ciudades / destinos de interés");
-  const cityCountHeading = document.querySelector("#dashboardView > .panel .panel-heading p");
-  cityCountHeading?.replaceChildren(
-    document.createTextNode("Cada vehículo aparece en todas las ciudades que seleccionó, conservando un solo registro maestro."),
-  );
   elements.qualityApprovedCount?.nextElementSibling?.replaceChildren(document.createTextNode("Aptos del día"));
   elements.qualityRejectedCount?.nextElementSibling?.replaceChildren(document.createTextNode("Rechazados del día"));
-  document.querySelector("#historyView .panel-heading p")?.replaceChildren(
-    document.createTextNode("Aquí se conserva el registro del vehículo, sus evidencias, el resultado de calidad, el responsable y el tiempo transcurrido entre enturnamiento y revisión."),
+  setNodeText(
+    "#historyView .panel-heading p",
+    "Aquí se conserva el registro del vehículo, sus evidencias, el resultado de calidad, el responsable y el tiempo transcurrido entre el enturnamiento y la revisión.",
   );
+  setNodeText("#qualityView .panel:nth-of-type(1) .panel-heading h3", "Pendientes por revisar");
+  setNodeText("#qualityView .panel:nth-of-type(2) .panel-heading h3", "Vehículos en arreglos");
+  setNodeText("#qualityView .panel:nth-of-type(3) .panel-heading h3", "Vehículos aptos");
+  setNodeText("#qualityView .panel:nth-of-type(4) .panel-heading h3", "Vehículos rechazados");
 }
 
 function bindEvents() {
@@ -739,6 +754,7 @@ function renderQueueTables() {
       ...(queueGroups.dianaAgricola || []),
     ];
     const rows = filterZoneSummaryRows(buildZoneSummaryRows(activeRows));
+    const totals = buildZoneSummaryTotals(activeRows);
     const columns = [
       ["Zona", (item) => escapeHtml(item.zone)],
       ["Carros enturnados", (item) => escapeHtml(String(item.queued))],
@@ -746,7 +762,10 @@ function renderQueueTables() {
     elements.queueTables.innerHTML = renderNamedTable(
       "Carros enturnados por zona",
       "Aquí ves únicamente la cantidad de vehículos enturnados por cada zona de destino.",
-      renderTable(columns, rows, "No hay vehículos enturnados para consolidar por zona."),
+      `
+        ${renderTable(columns, rows, "No hay vehículos enturnados para consolidar por zona.")}
+        ${renderZoneSummaryTotals(totals)}
+      `,
       "Filtrar zona o cantidad en este resumen...",
     );
     return;
@@ -1536,6 +1555,19 @@ function renderTable(columns, rows, emptyText) {
   `;
 }
 
+function renderZoneSummaryTotals(totals) {
+  return `
+    <div class="zone-summary-totals">
+      ${totals.map((item) => `
+        <article class="zone-summary-totals-card">
+          <span>${escapeHtml(item.label)}</span>
+          <strong>${escapeHtml(String(item.value))}</strong>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
 function handleNamedTableFilterInput(event) {
   const input = event.target.closest("[data-named-table-filter]");
   if (!input) return;
@@ -1593,6 +1625,24 @@ function buildZoneSummaryRows(rows) {
   });
 
   return Array.from(summary.values()).sort((left, right) => left.zone.localeCompare(right.zone, "es"));
+}
+
+function buildZoneSummaryTotals(rows) {
+  const queuedRows = rows || [];
+  return [
+    {
+      label: "Total de carros enturnados",
+      value: queuedRows.length,
+    },
+    {
+      label: "Carros pendientes por revisar",
+      value: queuedRows.filter((row) => ["PENDING", "IN_PROGRESS"].includes(row.qualityStatus)).length,
+    },
+    {
+      label: "Carros en arreglos",
+      value: queuedRows.filter((row) => row.qualityStatus === "REWORK").length,
+    },
+  ];
 }
 
 function filterZoneSummaryRows(rows) {

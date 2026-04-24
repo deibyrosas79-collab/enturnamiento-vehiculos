@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Control de enturnamiento y calidad</title>
-    <link rel="stylesheet" href="styles.css?v=20260423g" />
+    <link rel="stylesheet" href="styles.css?v=20260423h" />
   </head>
   <body>
     <div class="page-shell">
@@ -14,18 +14,18 @@
           <h1>Control de enturnamiento y calidad</h1>
           <p class="hero-text">
             Registro log&iacute;stico, turnos por transportadora, checklist de calidad, historial operativo y
-            administraciÃƒÂ¯Ã‚Â¿Ã‚Â½n centralizada en tiempo real.
+            administraci&oacute;n centralizada en tiempo real.
           </p>
         </div>
-        <img class="hero-logo" src="assets/logo-logistica.png" alt="Logo Diana LogÃƒÂ¯Ã‚Â¿Ã‚Â½stica" />
+        <img class="hero-logo" src="assets/logo-logistica.png" alt="Logo Diana Log&iacute;stica" />
       </header>
 
       <section id="authScreen" class="auth-card">
         <div class="panel-heading">
           <div>
             <p class="eyebrow">Acceso</p>
-            <h2>Iniciar sesiÃƒÂ¯Ã‚Â¿Ã‚Â½n</h2>
-            <p>Ingresa con un usuario de logÃƒÂ¯Ã‚Â¿Ã‚Â½stica, calidad o administrador.</p>
+            <h2>Iniciar sesi&oacute;n</h2>
+            <p>Ingresa con un usuario de log&iacute;stica, calidad o administrador.</p>
           </div>
         </div>
         <form id="loginForm" class="form-grid compact">
@@ -51,18 +51,18 @@
           </div>
           <div class="top-actions">
             <button id="openPublicPageButton" class="ghost" type="button">Abrir registro QR</button>
-            <button id="refreshButton" class="secondary" type="button">Actualizar informaciÃƒÂ¯Ã‚Â¿Ã‚Â½n</button>
-            <button id="logoutButton" class="danger" type="button">Cerrar sesiÃƒÂ¯Ã‚Â¿Ã‚Â½n</button>
+            <button id="refreshButton" class="secondary" type="button">Actualizar informaci&oacute;n</button>
+            <button id="logoutButton" class="danger" type="button">Cerrar sesi&oacute;n</button>
           </div>
         </section>
 
         <nav id="mainNav" class="nav-tabs">
-          <button class="nav-tab active" data-view="dashboard" type="button">LogÃƒÂ¯Ã‚Â¿Ã‚Â½stica</button>
+          <button class="nav-tab active" data-view="dashboard" type="button">Log&iacute;stica</button>
           <button class="nav-tab" data-view="quality" type="button">Calidad</button>
           <button class="nav-tab" data-view="history" type="button">Historial</button>
           <button class="nav-tab" data-view="masters" type="button">Datos maestros</button>
           <button class="nav-tab" data-view="reports" type="button">Reportes</button>
-          <button class="nav-tab" data-view="settings" type="button">ConfiguraciÃƒÂ¯Ã‚Â¿Ã‚Â½n</button>
+          <button class="nav-tab" data-view="settings" type="button">Configuraci&oacute;n</button>
         </nav>
 
         <section id="dashboardView" class="app-view active">
@@ -77,10 +77,10 @@
             <section class="panel">
               <div class="panel-heading">
                 <div>
-                  <h3>Registrar vehÃƒÂ¯Ã‚Â¿Ã‚Â½culo</h3>
+                  <h3>Registrar veh&iacute;culo</h3>
                   <p>
-                    Puedes escoger varias ciudades para el mismo vehÃƒÂ¯Ã‚Â¿Ã‚Â½culo. El sistema lo mostrarÃƒÂ¯Ã‚Â¿Ã‚Â½ en cada lista de ciudad
-                    sin duplicar el registro ÃƒÂ¯Ã‚Â¿Ã‚Â½nico del vehÃƒÂ¯Ã‚Â¿Ã‚Â½culo.
+                    Puedes escoger varias ciudades para el mismo veh&iacute;culo. El sistema lo mostrar&aacute; en cada lista de ciudad
+                    sin duplicar el registro &uacute;nico del veh&iacute;culo.
                   </p>
                 </div>
               </div>
@@ -88,11 +88,11 @@
                 <label>Placa<input id="plate" name="plate" required placeholder="Ej: ABC123" /></label>
                 <label>Transportadora<select id="carrierId" name="carrierId" required></select></label>
                 <label>Conductor<input id="driverName" name="driverName" required placeholder="Nombre completo" /></label>
-                <label>CÃƒÂ¯Ã‚Â¿Ã‚Â½dula<input id="driverId" name="driverId" required placeholder="NÃƒÂ¯Ã‚Â¿Ã‚Â½mero de cÃƒÂ¯Ã‚Â¿Ã‚Â½dula" /></label>
+                <label>C&eacute;dula<input id="driverId" name="driverId" required placeholder="N&uacute;mero de c&eacute;dula" /></label>
                 <label>Celular<input id="driverPhone" name="driverPhone" required placeholder="Ej: 3001234567" /></label>
-                <label>P. vacÃƒÂ¯Ã‚Â¿Ã‚Â½o (kg)<input id="emptyWeightKg" name="emptyWeightKg" required placeholder="Ej: 8400" /></label>
+                <label>P. vac&iacute;o (kg)<input id="emptyWeightKg" name="emptyWeightKg" required placeholder="Ej: 8400" /></label>
                 <label class="wide">
-                  Ciudades / destinos de interÃƒÂ¯Ã‚Â¿Ã‚Â½s
+                  Ciudades / destinos de inter&eacute;s
                   <div id="dashboardDestinationPicker" class="multi-select-dropdown">
                     <button id="dashboardDestinationToggle" class="multi-select-toggle" type="button" aria-expanded="false">
                       Selecciona uno o mas destinos
@@ -128,7 +128,7 @@
           <section class="panel">
             <div class="panel-heading">
               <div>
-                <h3>VehÃƒÂ¯Ã‚Â¿Ã‚Â½culos operativos</h3>
+                <h3>Veh&iacute;culos operativos</h3>
                 <p>Consulta la fila actual, asignados y rechazados con soportes, tiempos y trazabilidad.</p>
               </div>
             </div>
@@ -151,7 +151,7 @@
             <div class="panel-heading">
               <div>
                 <h3>Conteo de turnos por ciudad</h3>
-                <p>Cada vehÃƒÂ¯Ã‚Â¿Ã‚Â½culo aparece en todas las ciudades que seleccionÃƒÂ¯Ã‚Â¿Ã‚Â½, conservando un solo registro maestro.</p>
+                <p>Cada veh&iacute;culo aparece en todas las ciudades que seleccion&oacute;, conservando un solo registro maestro.</p>
               </div>
             </div>
             <div id="cityQueueTables"></div>
@@ -162,8 +162,8 @@
           <div class="summary-grid">
             <article><span id="qualityPendingCount">0</span><p>Pendientes</p></article>
             <article><span id="qualityReworkCount">0</span><p>En arreglos</p></article>
-            <article><span id="qualityApprovedCount">0</span><p>Aptos del dÃƒÂ¯Ã‚Â¿Ã‚Â½a</p></article>
-            <article><span id="qualityRejectedCount">0</span><p>Rechazados del dÃƒÂ¯Ã‚Â¿Ã‚Â½a</p></article>
+            <article><span id="qualityApprovedCount">0</span><p>Aptos del d&iacute;a</p></article>
+            <article><span id="qualityRejectedCount">0</span><p>Rechazados del d&iacute;a</p></article>
           </div>
 
           <div class="layout quality-grid">
@@ -172,15 +172,15 @@
               <div id="qualityPendingList" class="stack-list"></div>
             </section>
             <section class="panel">
-              <div class="panel-heading"><div><h3>VehÃƒÂ¯Ã‚Â¿Ã‚Â½culos en arreglos</h3></div></div>
+              <div class="panel-heading"><div><h3>Veh&iacute;culos en arreglos</h3></div></div>
               <div id="qualityReworkList" class="stack-list"></div>
             </section>
             <section class="panel">
-              <div class="panel-heading"><div><h3>VehÃƒÂ¯Ã‚Â¿Ã‚Â½culos aptos</h3></div></div>
+              <div class="panel-heading"><div><h3>Veh&iacute;culos aptos</h3></div></div>
               <div id="qualityApprovedList" class="stack-list"></div>
             </section>
             <section class="panel">
-              <div class="panel-heading"><div><h3>VehÃƒÂ¯Ã‚Â¿Ã‚Â½culos rechazados</h3></div></div>
+              <div class="panel-heading"><div><h3>Veh&iacute;culos rechazados</h3></div></div>
               <div id="qualityRejectedList" class="stack-list"></div>
             </section>
           </div>
@@ -192,8 +192,8 @@
               <div>
                 <h3>Historial completo de enturnamiento</h3>
                 <p>
-                  AquÃƒÂ¯Ã‚Â¿Ã‚Â½ se conserva el registro del vehÃƒÂ¯Ã‚Â¿Ã‚Â½culo, sus evidencias, el resultado de calidad, el responsable y el
-                  tiempo transcurrido entre enturnamiento y revisiÃƒÂ¯Ã‚Â¿Ã‚Â½n.
+                  Aqu&iacute; se conserva el registro del veh&iacute;culo, sus evidencias, el resultado de calidad, el responsable y el
+                  tiempo transcurrido entre enturnamiento y revisi&oacute;n.
                 </p>
               </div>
               <div class="history-actions">
@@ -223,7 +223,7 @@
                 <label>Zona<input id="destinationZone" name="destinationZone" required /></label>
                 <div class="wide modal-actions inline-actions">
                   <button id="destinationSubmitButton" class="primary" type="submit">Guardar destino</button>
-                  <button id="cancelDestinationEditButton" class="ghost hidden" type="button">Cancelar ediciÃƒÂ¯Ã‚Â¿Ã‚Â½n</button>
+                  <button id="cancelDestinationEditButton" class="ghost hidden" type="button">Cancelar edici&oacute;n</button>
                 </div>
               </form>
               <div id="destinationsTable"></div>
@@ -233,15 +233,15 @@
               <div class="panel-heading">
                 <div>
                   <h3>Transportadoras</h3>
-                  <p>La transportadora 4000801 - DIANA AGRICOLA S.A.S tendrÃƒÂ¯Ã‚Â¿Ã‚Â½ su fila paralela automÃƒÂ¯Ã‚Â¿Ã‚Â½tica.</p>
+                  <p>La transportadora 4000801 - DIANA AGRICOLA S.A.S tendr&aacute; su fila paralela autom&aacute;tica.</p>
                 </div>
               </div>
               <form id="carrierForm" class="form-grid compact">
-                <label>CÃƒÂ¯Ã‚Â¿Ã‚Â½digo<input id="carrierCode" name="carrierCode" required /></label>
+                <label>C&oacute;digo<input id="carrierCode" name="carrierCode" required /></label>
                 <label>Transportadora<input id="carrierName" name="carrierName" required /></label>
                 <div class="wide modal-actions inline-actions">
                   <button id="carrierSubmitButton" class="primary" type="submit">Guardar transportadora</button>
-                  <button id="cancelCarrierEditButton" class="ghost hidden" type="button">Cancelar ediciÃƒÂ¯Ã‚Â¿Ã‚Â½n</button>
+                  <button id="cancelCarrierEditButton" class="ghost hidden" type="button">Cancelar edici&oacute;n</button>
                 </div>
               </form>
               <div id="carriersTable"></div>
@@ -252,7 +252,7 @@
             <div class="panel-heading">
               <div>
                 <h3>Usuarios y roles</h3>
-                <p>Solo el administrador general puede crear usuarios, contraseÃƒÂ¯Ã‚Â¿Ã‚Â½as y roles.</p>
+                <p>Solo el administrador general puede crear usuarios, contrase&ntilde;as y roles.</p>
               </div>
             </div>
             <form id="userForm" class="form-grid compact">
@@ -261,7 +261,7 @@
               <label>
                 Rol
                 <select id="newRole" name="newRole">
-                  <option value="LOGISTICA">LogÃƒÂ¯Ã‚Â¿Ã‚Â½stica</option>
+                  <option value="LOGISTICA">Log&iacute;stica</option>
                   <option value="CALIDAD">Calidad</option>
                   <option value="VISUALIZADOR">Visualizador</option>
                   <option value="ADMIN">Administrador</option>
@@ -275,7 +275,7 @@
               </label>
               <div class="wide modal-actions inline-actions">
                 <button id="userSubmitButton" class="primary" type="submit">Crear usuario</button>
-                <button id="cancelUserEditButton" class="ghost hidden" type="button">Cancelar ediciÃƒÂ¯Ã‚Â¿Ã‚Â½n</button>
+                <button id="cancelUserEditButton" class="ghost hidden" type="button">Cancelar edici&oacute;n</button>
               </div>
             </form>
             <div id="usersTable"></div>
@@ -285,7 +285,7 @@
         <section id="reportsView" class="app-view">
           <div class="layout quality-grid">
             <section class="panel">
-              <div class="panel-heading"><div><h3>Transportadoras con mÃƒÂ¯Ã‚Â¿Ã‚Â½s rechazos</h3></div></div>
+              <div class="panel-heading"><div><h3>Transportadoras con m&aacute;s rechazos</h3></div></div>
               <div id="carrierRejectReport"></div>
             </section>
             <section class="panel">
@@ -297,7 +297,7 @@
               <div id="suitabilityReport"></div>
             </section>
             <section class="panel">
-              <div class="panel-heading"><div><h3>DecisiÃƒÂ¯Ã‚Â¿Ã‚Â½n de calidad</h3></div></div>
+              <div class="panel-heading"><div><h3>Decisi&oacute;n de calidad</h3></div></div>
               <div id="qualityDecisionReport"></div>
             </section>
           </div>
@@ -307,8 +307,8 @@
           <section class="panel">
             <div class="panel-heading">
               <div>
-                <h3>ConfiguraciÃƒÂ¯Ã‚Â¿Ã‚Â½n de sede y GPS</h3>
-                <p>La aplicaciÃƒÂ¯Ã‚Â¿Ã‚Â½n inicia con latitud 5.286142 y longitud -72.402228, pero puedes editarlas si cambia la planta.</p>
+                <h3>Configuraci&oacute;n de sede y GPS</h3>
+                <p>La aplicaci&oacute;n inicia con latitud 5.286142 y longitud -72.402228, pero puedes editarlas si cambia la planta.</p>
               </div>
             </div>
             <form id="siteForm" class="form-grid compact">
@@ -321,7 +321,7 @@
                 <input id="geofenceEnabled" name="geofenceEnabled" type="checkbox" />
                 Exigir GPS para registro por QR
               </label>
-              <div class="wide"><button class="primary" type="submit">Guardar configuraciÃƒÂ¯Ã‚Â¿Ã‚Â½n</button></div>
+              <div class="wide"><button class="primary" type="submit">Guardar configuraci&oacute;n</button></div>
             </form>
           </section>
         </section>
@@ -330,7 +330,7 @@
 
     <div id="rejectModal" class="modal hidden">
       <form id="rejectForm" class="modal-card">
-        <h3>Rechazar vehÃƒÂ¯Ã‚Â¿Ã‚Â½culo</h3>
+        <h3>Rechazar veh&iacute;culo</h3>
         <p id="rejectVehicleLabel" class="muted-text"></p>
         <label>Motivo<textarea id="rejectReason" required rows="4"></textarea></label>
         <div class="modal-actions">
@@ -342,11 +342,11 @@
 
     <div id="qualityModal" class="modal hidden">
       <form id="qualityForm" class="modal-card wide-modal">
-        <h3 id="qualityModalTitle">InspecciÃƒÂ¯Ã‚Â¿Ã‚Â½n</h3>
+        <h3 id="qualityModalTitle">Inspecci&oacute;n</h3>
         <p id="qualityMeta" class="muted-text"></p>
         <div id="qualityChecklistGrid" class="quality-form-grid"></div>
         <section class="quality-item wide">
-          <h4>ObservaciÃƒÂ¯Ã‚Â¿Ã‚Â½n 1 - tipo de operaciÃƒÂ¯Ã‚Â¿Ã‚Â½n apta</h4>
+          <h4>Observaci&oacute;n 1 - tipo de operaci&oacute;n apta</h4>
           <div class="checkbox-grid">
             <label class="inline-check"><input type="checkbox" name="suitability" value="Cadenas" /> Cadenas</label>
             <label class="inline-check"><input type="checkbox" name="suitability" value="Mayoristas" /> Mayoristas</label>
@@ -356,7 +356,7 @@
         </section>
         <label class="wide">Observaciones 2<textarea id="observationsText" rows="3"></textarea></label>
         <label class="wide">
-          DecisiÃƒÂ¯Ã‚Â¿Ã‚Â½n final
+          Decisi&oacute;n final
           <select id="finalDecision" required>
             <option value="APPROVED">Apto</option>
             <option value="REWORK">Requiere arreglos</option>
@@ -389,15 +389,15 @@
           <label>Placa<input id="editPlate" name="plate" required /></label>
           <label>Transportadora<select id="editCarrierId" name="carrierId" required></select></label>
           <label>Conductor<input id="editDriverName" name="driverName" required /></label>
-          <label>CÃƒÂ¯Ã‚Â¿Ã‚Â½dula<input id="editDriverId" name="driverId" required /></label>
+          <label>C&eacute;dula<input id="editDriverId" name="driverId" required /></label>
           <label>Celular<input id="editDriverPhone" name="driverPhone" required /></label>
-          <label>P. vacÃƒÂ¯Ã‚Â¿Ã‚Â½o (kg)<input id="editEmptyWeightKg" name="emptyWeightKg" required /></label>
+          <label>P. vac&iacute;o (kg)<input id="editEmptyWeightKg" name="emptyWeightKg" required /></label>
           <label>Centro / CEDI<select id="editCenterId" name="centerId" required></select></label>
           <label class="wide">
-            Ciudades / destinos de interÃƒÂ¯Ã‚Â¿Ã‚Â½s
+            Ciudades / destinos de inter&eacute;s
             <select id="editDestinationIds" name="destinationIds" required></select>
           </label>
-          <label>Estado logÃƒÂ¯Ã‚Â¿Ã‚Â½stico
+          <label>Estado log&iacute;stico
             <select id="editVehicleStatus" name="status" required>
               <option value="QUEUED">En turno</option>
               <option value="ASSIGNED">Viaje asignado</option>
@@ -407,13 +407,13 @@
           <label>Estado calidad
             <select id="editQualityStatus" name="qualityStatus" required>
               <option value="PENDING">Pendiente</option>
-              <option value="IN_REVIEW">En revisiÃƒÂ¯Ã‚Â¿Ã‚Â½n</option>
+              <option value="IN_REVIEW">En revisi&oacute;n</option>
               <option value="APPROVED">Apto</option>
               <option value="REWORK">Requiere arreglos</option>
               <option value="REJECTED">Rechazado</option>
             </select>
           </label>
-          <label class="wide">Motivo / observaciÃƒÂ¯Ã‚Â¿Ã‚Â½n administrativa<textarea id="editRejectionReason" name="rejectionReason" rows="4"></textarea></label>
+          <label class="wide">Motivo / observaci&oacute;n administrativa<textarea id="editRejectionReason" name="rejectionReason" rows="4"></textarea></label>
         </div>
         <div class="modal-actions">
           <button id="cancelVehicleEditButton" class="ghost" type="button">Cancelar</button>
@@ -434,7 +434,7 @@
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-    <script src="app.js?v=20260423g" defer></script>
+    <script src="app.js?v=20260423h" defer></script>
     <script>
       (function () {
         function urlB64ToUint8Array(b64) {
