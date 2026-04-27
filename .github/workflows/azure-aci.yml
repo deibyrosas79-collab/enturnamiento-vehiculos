@@ -42,69 +42,52 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # ── Preparar almacenamiento persistente para certificados TLS ────────
-      - name: Crear File Share para certificados Caddy
+      # Obtener storage key y crear file share para certificados TLS
+      - name: Preparar almacenamiento de certificados
         uses: azure/cli@v2
         with:
           azcliversion: latest
           inlineScript: |
-            STORAGE_KEY=$(az storage account keys list \
+            KEY=$(az storage account keys list \
               --account-name ${{ env.STORAGE_ACCOUNT }} \
               --resource-group ${{ env.RESOURCE_GROUP }} \
               --query '[0].value' -o tsv)
-            echo "STORAGE_KEY=$STORAGE_KEY" >> $GITHUB_ENV
-
+            echo "CADDY_STORAGE_KEY=$KEY" >> $GITHUB_ENV
             az storage share create \
               --name caddy-certs \
               --account-name ${{ env.STORAGE_ACCOUNT }} \
-              --account-key "$STORAGE_KEY" \
+              --account-key "$KEY" \
               --quota 1 2>/dev/null || true
-            echo "File share caddy-certs listo."
 
-      # ── Contenedor HTTPS (principal) con cert persistente ────────────────
+      # ── Contenedor HTTPS (principal) ──────────────────────────────────────
       - name: Borrar contenedor HTTPS anterior
         uses: azure/cli@v2
         with:
           azcliversion: latest
           inlineScript: |
-            az container delete \
-              --name enturnamiento-diana-d79-https \
-              --resource-group ${{ env.RESOURCE_GROUP }} \
-              --yes 2>/dev/null || true
-            sleep 5
+            az container delete --name enturnamiento-diana-d79-https \
+              --resource-group ${{ env.RESOURCE_GROUP }} --yes 2>/dev/null || true
 
-      - name: Deploy contenedor HTTPS con cert persistente
-        uses: azure/cli@v2
+      - name: Deploy contenedor HTTPS
+        uses: azure/aci-deploy@v1
         with:
-          azcliversion: latest
-          inlineScript: |
-            az container create \
-              --name enturnamiento-diana-d79-https \
-              --resource-group ${{ env.RESOURCE_GROUP }} \
-              --image ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
-              --registry-server ${{ env.ACR_LOGIN_SERVER }} \
-              --registry-username ${{ secrets.ACR_USERNAME }} \
-              --registry-password ${{ secrets.ACR_PASSWORD }} \
-              --dns-name-label enturnamiento-d79-secure \
-              --location ${{ env.LOCATION }} \
-              --ports 80 443 8000 \
-              --cpu 1 \
-              --memory 1.5 \
-              --environment-variables \
-                HOST=0.0.0.0 \
-                PORT=8000 \
-                UPLOADS_DIR=/var/data/uploads \
-                AZURE_STORAGE_ACCOUNT=${{ env.STORAGE_ACCOUNT }} \
-                AZURE_STORAGE_CONTAINER=evidencias \
-                ENABLE_HTTPS=true \
-                CADDY_DOMAIN=enturnamiento-d79-secure.eastus2.azurecontainer.io \
-              --secure-environment-variables \
-                DATABASE_URL=${{ secrets.AZURE_DATABASE_URL }} \
-              --azure-file-volume-account-name ${{ env.STORAGE_ACCOUNT }} \
-              --azure-file-volume-account-key "${{ env.STORAGE_KEY }}" \
-              --azure-file-volume-share-name caddy-certs \
-              --azure-file-volume-mount-path /root/.local/share/caddy \
-              --restart-policy Always
+          resource-group: ${{ env.RESOURCE_GROUP }}
+          dns-name-label: enturnamiento-d79-secure
+          image: ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          name: enturnamiento-diana-d79-https
+          location: ${{ env.LOCATION }}
+          registry-login-server: ${{ env.ACR_LOGIN_SERVER }}
+          registry-username: ${{ secrets.ACR_USERNAME }}
+          registry-password: ${{ secrets.ACR_PASSWORD }}
+          environment-variables: HOST=0.0.0.0 PORT=8000 UPLOADS_DIR=/var/data/uploads AZURE_STORAGE_ACCOUNT=${{ env.STORAGE_ACCOUNT }} AZURE_STORAGE_CONTAINER=evidencias ENABLE_HTTPS=true CADDY_DOMAIN=enturnamiento-d79-secure.eastus2.azurecontainer.io
+          secure-environment-variables: DATABASE_URL=${{ secrets.AZURE_DATABASE_URL }}
+          ports: "80 443 8000"
+          cpu: 1
+          memory: 1.5
+          azure-file-volume-share-name: caddy-certs
+          azure-file-volume-storage-account-name: ${{ env.STORAGE_ACCOUNT }}
+          azure-file-volume-storage-account-key: ${{ env.CADDY_STORAGE_KEY }}
+          azure-file-volume-mount-path: /root/.local/share/caddy
 
       # ── Contenedor HTTP (compatibilidad APK) ──────────────────────────────
       - name: Borrar contenedor HTTP anterior
@@ -112,11 +95,8 @@ jobs:
         with:
           azcliversion: latest
           inlineScript: |
-            az container delete \
-              --name enturnamiento-diana-d79 \
-              --resource-group ${{ env.RESOURCE_GROUP }} \
-              --yes 2>/dev/null || true
-            sleep 5
+            az container delete --name enturnamiento-diana-d79 \
+              --resource-group ${{ env.RESOURCE_GROUP }} --yes 2>/dev/null || true
 
       - name: Deploy contenedor HTTP
         uses: azure/aci-deploy@v1
@@ -135,7 +115,7 @@ jobs:
           cpu: 1
           memory: 1.5
 
-      - name: URLs de la aplicacion
+      - name: URLs finales
         run: |
           echo "HTTPS: https://enturnamiento-d79-secure.eastus2.azurecontainer.io"
           echo "HTTP:  http://enturnamiento-d79-app.eastus2.azurecontainer.io:8000"
