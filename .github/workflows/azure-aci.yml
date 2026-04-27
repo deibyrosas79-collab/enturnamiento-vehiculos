@@ -43,6 +43,16 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Delete existing ACI container
+        uses: azure/cli@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            az container delete \
+              --name ${{ env.ACI_NAME }} \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --yes || true
+
       - name: Deploy to Azure Container Instances
         uses: azure/aci-deploy@v1
         with:
@@ -54,12 +64,7 @@ jobs:
           registry-login-server: ${{ env.ACR_LOGIN_SERVER }}
           registry-username: ${{ secrets.ACR_USERNAME }}
           registry-password: ${{ secrets.ACR_PASSWORD }}
-          environment-variables: |
-            HOST=0.0.0.0
-            PORT=8000
-            UPLOADS_DIR=/var/data/uploads
-            AZURE_STORAGE_ACCOUNT=stenturnad79prod
-            AZURE_STORAGE_CONTAINER=evidencias
+          environment-variables: HOST=0.0.0.0 PORT=8000 UPLOADS_DIR=/var/data/uploads AZURE_STORAGE_ACCOUNT=stenturnad79prod AZURE_STORAGE_CONTAINER=evidencias
           secure-environment-variables: DATABASE_URL=${{ secrets.AZURE_DATABASE_URL }}
           ports: "8000"
           cpu: 1
