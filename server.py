@@ -290,15 +290,23 @@ class _PooledConn(_Conn):
         self._pool = pool
 
     def __exit__(self, exc_type, *_):
-        if exc_type is None:
-            self._raw.commit()
-        else:
-            try:
+        # Siempre intentar commit/rollback y manejar conexiones muertas
+        try:
+            if exc_type is None:
+                self._raw.commit()
+            else:
                 self._raw.rollback()
-            except Exception:
+        except Exception:
+            # Conexión muerta — descartarla del pool
+            try:
                 self._pool.putconn(self._raw, close=True)
-                return
-        self._pool.putconn(self._raw)
+            except Exception:
+                pass
+            return  # no re-raise para no ocultar la excepción original
+        try:
+            self._pool.putconn(self._raw)
+        except Exception:
+            pass
 
 
 def get_vapid_keys() -> Tuple[str, str]:
@@ -390,31 +398,55 @@ def _dispatch_notifications(title: str, body: str, tag: str) -> None:
             print(f"FCM error: {exc}")
 
 
+def _pg_dsn_with_keepalive() -> str:
+    """Añade parámetros keepalive al DATABASE_URL para detectar conexiones muertas."""
+    sep = "&" if "?" in DATABASE_URL else "?"
+    return (
+        DATABASE_URL
+        + sep
+        + "keepalives=1&keepalives_idle=60&keepalives_interval=10&keepalives_count=3"
+        + "&connect_timeout=10"
+    )
+
+
+def _ping_connection(raw) -> bool:
+    """Devuelve True si la conexión está viva."""
+    try:
+        raw.cursor().execute("SELECT 1")
+        raw.rollback()
+        return True
+    except Exception:
+        return False
+
+
 def get_connection() -> _Conn:
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     SQLITE_FALLBACK_PATH.parent.mkdir(parents=True, exist_ok=True)
     if DATABASE_URL and psycopg2:
-        global _pg_pool
         pool = _pg_pool
         if pool:
-            for attempt in range(3):
-                try:
+            raw = None
+            try:
+                raw = pool.getconn()
+                if not _ping_connection(raw):
+                    # Conexión muerta — descartar y pedir una nueva
+                    pool.putconn(raw, close=True)
                     raw = pool.getconn()
-                    # Verificar que la conexión esté viva
-                    try:
-                        raw.cursor().execute("SELECT 1")
-                        raw.rollback()
-                    except Exception:
+                    if not _ping_connection(raw):
                         pool.putconn(raw, close=True)
-                        raw = pool.getconn()
-                    return _PooledConn(raw, pool)
-                except Exception as err:
-                    print(f"Pool.getconn intento {attempt + 1}/3: {err}")
-                    if attempt < 2:
-                        time.sleep(0.5)
-        # Fallback: conexión directa si el pool no está listo
+                        raw = None
+                        raise RuntimeError("Conexiones del pool no responden")
+                return _PooledConn(raw, pool)
+            except Exception as err:
+                if raw is not None:
+                    try:
+                        pool.putconn(raw, close=True)
+                    except Exception:
+                        pass
+                print(f"Pool no disponible ({err}), usando conexión directa.")
+        # Fallback: nueva conexión directa
         try:
-            return _Conn(psycopg2.connect(DATABASE_URL))
+            return _Conn(psycopg2.connect(_pg_dsn_with_keepalive()))
         except Exception as error:
             print(f"PostgreSQL no disponible, se activa contingencia SQLite: {error}")
     elif DATABASE_URL and not psycopg2:
@@ -3415,10 +3447,13 @@ def _create_pg_pool() -> bool:
         pool = psycopg2.pool.ThreadedConnectionPool(
             minconn=2,
             maxconn=10,
-            dsn=DATABASE_URL,
+            dsn=_pg_dsn_with_keepalive(),
         )
         # Verificar que al menos una conexión funciona
         conn = pool.getconn()
+        if not _ping_connection(conn):
+            pool.putconn(conn, close=True)
+            raise RuntimeError("Conexión de prueba no respondió.")
         pool.putconn(conn)
         with _pg_pool_lock:
             _pg_pool = pool
