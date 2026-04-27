@@ -71,21 +71,21 @@ jobs:
       - name: Deploy contenedor HTTPS
         uses: azure/aci-deploy@v1
         with:
-          resource-group: ${{ env.RESOURCE_GROUP }}
+          resource-group: rg-enturnamiento-prod
           dns-name-label: enturnamiento-d79-secure
           image: ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
           name: enturnamiento-diana-d79-https
-          location: ${{ env.LOCATION }}
+          location: eastus2
           registry-login-server: ${{ env.ACR_LOGIN_SERVER }}
           registry-username: ${{ secrets.ACR_USERNAME }}
           registry-password: ${{ secrets.ACR_PASSWORD }}
-          environment-variables: HOST=0.0.0.0 PORT=8000 UPLOADS_DIR=/var/data/uploads AZURE_STORAGE_ACCOUNT=${{ env.STORAGE_ACCOUNT }} AZURE_STORAGE_CONTAINER=evidencias ENABLE_HTTPS=true CADDY_DOMAIN=enturnamiento-d79-secure.eastus2.azurecontainer.io
+          environment-variables: HOST=0.0.0.0 PORT=8000 UPLOADS_DIR=/var/data/uploads AZURE_STORAGE_ACCOUNT=stenturnad79prod AZURE_STORAGE_CONTAINER=evidencias ENABLE_HTTPS=true CADDY_DOMAIN=enturnamiento-d79-secure.eastus2.azurecontainer.io
           secure-environment-variables: DATABASE_URL=${{ secrets.AZURE_DATABASE_URL }}
           ports: "80 443 8000"
           cpu: 1
           memory: 1.5
           azure-file-volume-share-name: caddy-certs
-          azure-file-volume-storage-account-name: ${{ env.STORAGE_ACCOUNT }}
+          azure-file-volume-storage-account-name: stenturnad79prod
           azure-file-volume-storage-account-key: ${{ env.CADDY_STORAGE_KEY }}
           azure-file-volume-mount-path: /root/.local/share/caddy
 
