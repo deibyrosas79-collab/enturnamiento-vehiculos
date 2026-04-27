@@ -856,7 +856,7 @@ function renderQueueTables() {
 function renderQueueActions(item) {
   const actions = [];
   if (state.appState?.permissions?.canOperateLogistics && item.status === "QUEUED") {
-    actions.push(`<button class="primary small-action" type="button" data-action="assign" data-id="${item.id}" ${item.qualityStatus !== "APPROVED" ? "disabled" : ""}>Asignar</button>`);
+    actions.push(`<button class="primary small-action" type="button" data-action="assign" data-id="${item.id}">Asignar</button>`);
     actions.push(`<button class="danger small-action" type="button" data-action="reject" data-id="${item.id}">Rechazar</button>`);
   }
   if (state.appState?.permissions?.isAdmin) {

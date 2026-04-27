@@ -54,6 +54,12 @@ CATALOG_ADD_ONLY_IDENTITIES = {
     "samanta lozano",
     "katherindelgado",
     "katherin delgado",
+    "katerindelgado",
+    "katerin delgado",
+    "auxfacturacion",
+    "aux facturacion",
+    "auxdistribucion",
+    "aux distribucion",
 }
 QUEUE_STATUS_ACTIVE = "QUEUED"
 QUEUE_STATUS_ASSIGNED = "ASSIGNED"
@@ -2418,8 +2424,6 @@ def assign_vehicle(vehicle_id: str) -> None:
         vehicle = db.execute("SELECT * FROM vehicles WHERE id = ? AND status = 'QUEUED'", (vehicle_id,)).fetchone()
         if not vehicle:
             raise AppError("El vehiculo no esta enturnado o no existe.", 404)
-        if (vehicle["quality_status"] or QUALITY_PENDING) != QUALITY_APPROVED:
-            raise AppError("Solo puedes asignar viaje a vehiculos con calidad aprobada.", 409)
         db.execute(
             "UPDATE vehicles SET status = 'ASSIGNED', assigned_at = ?, queue_position = NULL WHERE id = ?",
             (now_iso(), vehicle_id),
