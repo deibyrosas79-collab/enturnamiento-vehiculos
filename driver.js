@@ -7,6 +7,7 @@ const state = {
   config: null,
   centerId: new URLSearchParams(window.location.search).get("center") || "",
   trackingToken: localStorage.getItem("driver_tracking_token") || "",
+  lastTrackingData: (() => { try { return JSON.parse(localStorage.getItem("driver_last_tracking") || "null"); } catch { return null; } })(),
   driverSelfieDataUrl: "",
   signatureDataUrl: "",
   signatureHasDrawn: false,
@@ -72,6 +73,10 @@ function bootstrap() {
   document.addEventListener("click", handleDocumentClick);
   setupSignaturePad();
   togglePublicQueuePanels(Boolean(state.trackingToken));
+  // Mostrar último estado conocido inmediatamente mientras se refresca
+  if (state.trackingToken && state.lastTrackingData) {
+    renderTracking(state.lastTrackingData, true);
+  }
   loadConfig();
   if (state.trackingToken) {
     refreshTracking();
@@ -301,6 +306,8 @@ async function submitPublicRegistration(event) {
     const data = await request(withCenterQuery("/public/register", state.centerId), { method: "POST", body: payload });
     state.trackingToken = data.vehicle.publicTrackingToken;
     localStorage.setItem("driver_tracking_token", state.trackingToken);
+    state.lastTrackingData = data;
+    localStorage.setItem("driver_last_tracking", JSON.stringify(data));
     elements.publicVehicleForm.reset();
     resetRegistrationMedia();
     renderTracking(data);
@@ -325,17 +332,81 @@ async function refreshTracking() {
   }
   try {
     const data = await request(`/public/tracking/${encodeURIComponent(state.trackingToken)}`);
+    // Guardar último estado conocido en localStorage
+    state.lastTrackingData = data;
+    localStorage.setItem("driver_last_tracking", JSON.stringify(data));
     renderTracking(data);
   } catch {
-    // noop
+    // Si falla el servidor, mantener el último estado visible (no noop)
+    if (state.lastTrackingData) {
+      renderTracking(state.lastTrackingData, true);
+    }
   }
 }
 
-function renderTracking(data) {
+function clearTrackingAndReset() {
+  state.trackingToken = "";
+  state.lastTrackingData = null;
+  localStorage.removeItem("driver_tracking_token");
+  localStorage.removeItem("driver_last_tracking");
+  elements.publicTrackingCard.innerHTML = `<div class="empty">Aun no hay un turno activo en este navegador.</div>`;
+  togglePublicQueuePanels(false);
+  updateRegistrationGate();
+}
+
+function renderTracking(data, isStale = false) {
   const vehicle = data.vehicle;
   state.activeQueueGroup = vehicle.queueGroup || state.activeQueueGroup;
   const cityTurns = Object.entries(vehicle.cityTurns || {});
   const observations = vehicle.latestInspection?.observationsText || vehicle.latestInspection?.findingsSummary || vehicle.rejectionReason || "";
+
+  const staleNotice = isStale
+    ? `<p class="muted-text" style="color:#f59e0b">⏳ Reconectando con el servidor...</p>`
+    : "";
+
+  // Estado ASIGNADO → mensaje final con botón para nuevo registro
+  if (vehicle.status === "ASSIGNED") {
+    elements.publicTrackingCard.innerHTML = `
+      <div class="tracking-grid">
+        <div>
+          <h3 style="color:#16a34a">✅ ¡Viaje asignado!</h3>
+          <p><strong>Placa:</strong> ${escapeHtml(vehicle.plate)}</p>
+          <p><strong>Conductor:</strong> ${escapeHtml(vehicle.driverName)}</p>
+          <p><strong>Transportadora:</strong> ${escapeHtml(vehicle.carrier)}</p>
+          <p><strong>Destinos:</strong> ${escapeHtml(renderDestinationsText(vehicle))}</p>
+          <p class="muted-text">Tu turno ha finalizado. Puedes registrarte nuevamente cuando necesites.</p>
+          ${staleNotice}
+          <button class="primary" type="button" id="clearTrackingBtn" style="margin-top:1rem">Registrar nuevo viaje</button>
+        </div>
+      </div>
+    `;
+    document.getElementById("clearTrackingBtn")?.addEventListener("click", clearTrackingAndReset);
+    togglePublicQueuePanels(false);
+    return;
+  }
+
+  // Estado RECHAZADO → mensaje con motivo y botón para volver a registrar
+  if (vehicle.status === "REJECTED") {
+    const reason = vehicle.rejectionReason || "No especificado";
+    elements.publicTrackingCard.innerHTML = `
+      <div class="tracking-grid">
+        <div>
+          <h3 style="color:#dc2626">❌ Turno rechazado</h3>
+          <p><strong>Placa:</strong> ${escapeHtml(vehicle.plate)}</p>
+          <p><strong>Conductor:</strong> ${escapeHtml(vehicle.driverName)}</p>
+          <p><strong>Motivo:</strong> ${escapeHtml(reason)}</p>
+          <p class="muted-text">Puedes registrarte nuevamente si el inconveniente fue corregido.</p>
+          ${staleNotice}
+          <button class="primary" type="button" id="clearTrackingBtn" style="margin-top:1rem">Registrarme nuevamente</button>
+        </div>
+      </div>
+    `;
+    document.getElementById("clearTrackingBtn")?.addEventListener("click", clearTrackingAndReset);
+    togglePublicQueuePanels(false);
+    return;
+  }
+
+  // Estado ENTURNADO → mostrar posición actual
   elements.publicTrackingCard.innerHTML = `
     <div class="tracking-grid">
       <div>
@@ -349,7 +420,7 @@ function renderTracking(data) {
         ${observations ? `<div class="tracking-note"><strong>Observaciones:</strong> ${escapeHtml(observations)}</div>` : ""}
       </div>
     </div>
-    <p class="muted-text">Actualiza automaticamente cada 20 segundos. Frente de la fila: ${escapeHtml(data.frontOfQueue?.plate || "Sin fila")}</p>
+    <p class="muted-text">${isStale ? "⏳ Reconectando..." : `Actualiza automaticamente cada 20 segundos. Frente de la fila: ${escapeHtml(data.frontOfQueue?.plate || "Sin fila")}`}</p>
   `;
   togglePublicQueuePanels(false);
 }

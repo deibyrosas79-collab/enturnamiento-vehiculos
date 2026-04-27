@@ -29,8 +29,13 @@ from urllib.parse import parse_qs, unquote, urlparse
 try:
     import psycopg2
     import psycopg2.extras
+    import psycopg2.pool
 except Exception:  # pragma: no cover - fallback local sin PostgreSQL
     psycopg2 = None
+
+# Pool de conexiones PostgreSQL (inicializado en main())
+_pg_pool: Optional[Any] = None
+_pg_pool_lock = threading.Lock()
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -277,6 +282,25 @@ class _Conn:
         self._raw.close()
 
 
+class _PooledConn(_Conn):
+    """Igual que _Conn pero devuelve la conexión al pool en vez de cerrarla."""
+
+    def __init__(self, raw, pool):
+        super().__init__(raw)
+        self._pool = pool
+
+    def __exit__(self, exc_type, *_):
+        if exc_type is None:
+            self._raw.commit()
+        else:
+            try:
+                self._raw.rollback()
+            except Exception:
+                self._pool.putconn(self._raw, close=True)
+                return
+        self._pool.putconn(self._raw)
+
+
 def get_vapid_keys() -> Tuple[str, str]:
     try:
         conn = get_connection()
@@ -370,9 +394,28 @@ def get_connection() -> _Conn:
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     SQLITE_FALLBACK_PATH.parent.mkdir(parents=True, exist_ok=True)
     if DATABASE_URL and psycopg2:
+        global _pg_pool
+        pool = _pg_pool
+        if pool:
+            for attempt in range(3):
+                try:
+                    raw = pool.getconn()
+                    # Verificar que la conexión esté viva
+                    try:
+                        raw.cursor().execute("SELECT 1")
+                        raw.rollback()
+                    except Exception:
+                        pool.putconn(raw, close=True)
+                        raw = pool.getconn()
+                    return _PooledConn(raw, pool)
+                except Exception as err:
+                    print(f"Pool.getconn intento {attempt + 1}/3: {err}")
+                    if attempt < 2:
+                        time.sleep(0.5)
+        # Fallback: conexión directa si el pool no está listo
         try:
             return _Conn(psycopg2.connect(DATABASE_URL))
-        except DATABASE_DRIVER_ERRORS as error:
+        except Exception as error:
             print(f"PostgreSQL no disponible, se activa contingencia SQLite: {error}")
     elif DATABASE_URL and not psycopg2:
         print("psycopg2 no está disponible; se activa contingencia SQLite.")
@@ -3363,18 +3406,47 @@ class ResilientServer(ThreadingHTTPServer):
     daemon_threads = True
 
 
-def initialize_with_retry(max_attempts: int = 3, delay_seconds: int = 3) -> str:
+def _create_pg_pool() -> bool:
+    """Crea el pool de conexiones PostgreSQL. Retorna True si tuvo éxito."""
+    global _pg_pool
+    if not (DATABASE_URL and psycopg2):
+        return False
+    try:
+        pool = psycopg2.pool.ThreadedConnectionPool(
+            minconn=2,
+            maxconn=10,
+            dsn=DATABASE_URL,
+        )
+        # Verificar que al menos una conexión funciona
+        conn = pool.getconn()
+        pool.putconn(conn)
+        with _pg_pool_lock:
+            _pg_pool = pool
+        print("Pool PostgreSQL creado (min=2, max=10).")
+        return True
+    except Exception as err:
+        print(f"No se pudo crear pool PostgreSQL: {err}")
+        return False
+
+
+def initialize_with_retry(max_attempts: int = 10) -> str:
+    """Inicializa la base de datos con reintentos y backoff exponencial."""
     last_error: Optional[Exception] = None
     for attempt in range(1, max_attempts + 1):
         try:
+            if DATABASE_URL and psycopg2 and not _pg_pool:
+                _create_pg_pool()
             init_db()
             with get_connection() as db:
-                return "PostgreSQL" if is_postgres_connection(db) else "SQLite contingencia"
+                mode = "PostgreSQL" if is_postgres_connection(db) else "SQLite contingencia"
+                print(f"Base de datos lista: {mode}")
+                return mode
         except Exception as error:
             last_error = error
-            print(f"Intento de arranque {attempt}/{max_attempts} fallo: {error}")
+            delay = min(2 ** (attempt - 1), 30)  # backoff: 1s, 2s, 4s, 8s, 16s, 30s max
+            print(f"Intento de arranque {attempt}/{max_attempts} fallo: {error}. Reintento en {delay}s...")
             if attempt < max_attempts:
-                time.sleep(delay_seconds)
+                time.sleep(delay)
     raise last_error or RuntimeError("No se pudo inicializar la aplicacion.")
 
 
@@ -3383,7 +3455,7 @@ def main() -> None:
     server = ResilientServer((HOST, PORT), Handler)
     print(f"Aplicacion lista en http://localhost:{PORT}")
     print(f"Base de datos activa: {db_mode}.")
-    print("UI: Inter font, pill tabs, lift cards, spring modal — v2.1")
+    print("UI: Inter font, pill tabs, lift cards, spring modal — v2.2")
     server.serve_forever()
 
 
