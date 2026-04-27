@@ -1,0 +1,11 @@
+{
+    email admin@enturnamiento.com
+}
+
+{$CADDY_DOMAIN} {
+    reverse_proxy localhost:8000
+    encode gzip
+    log {
+        output discard
+    }
+}
