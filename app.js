@@ -60,6 +60,8 @@ const state = {
   mediaPreviewMap: {},
 };
 
+const MOJIBAKE_PATTERN = /Ã.|Â|�|Ð|Ñ/;
+
 const elements = {
   authScreen: document.querySelector("#authScreen"),
   appShell: document.querySelector("#appShell"),
@@ -206,7 +208,50 @@ function setPanelText(panelSelector, title, description) {
 }
 
 function setNodeText(selector, text) {
-  document.querySelector(selector)?.replaceChildren(document.createTextNode(text));
+  document.querySelector(selector)?.replaceChildren(document.createTextNode(normalizeDisplayText(text)));
+}
+
+function normalizeDisplayText(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value !== "string") return value;
+  let text = value;
+  for (let index = 0; index < 3; index += 1) {
+    if (!MOJIBAKE_PATTERN.test(text)) break;
+    try {
+      const bytes = Uint8Array.from(Array.from(text).map((char) => char.charCodeAt(0) & 0xff));
+      const decoded = new TextDecoder("utf-8").decode(bytes);
+      if (!decoded || decoded === text) break;
+      text = decoded;
+    } catch (_error) {
+      break;
+    }
+  }
+  return text.replace(/\uFFFD/g, "");
+}
+
+function normalizeIncomingData(value) {
+  if (typeof value === "string") return normalizeDisplayText(value);
+  if (Array.isArray(value)) return value.map((item) => normalizeIncomingData(item));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, normalizeIncomingData(item)]),
+    );
+  }
+  return value;
+}
+
+function repairVisibleText(root = document.body) {
+  if (!root) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+  while (node) {
+    const current = node.nodeValue || "";
+    const repaired = normalizeDisplayText(current);
+    if (repaired !== current) {
+      node.nodeValue = repaired;
+    }
+    node = walker.nextNode();
+  }
 }
 
 function applyStaticTextOverrides() {
@@ -280,6 +325,7 @@ function applyStaticTextOverrides() {
   setLabelText("#siteLat", "Latitud");
   setLabelText("#siteLng", "Longitud");
   setLabelText("#siteRadiusM", "Radio permitido (m)");
+  repairVisibleText();
 }
 
 function bindEvents() {
@@ -625,6 +671,7 @@ function renderApp() {
   renderReport(elements.reasonReport, analytics.topRejectionReasons, "No hay motivos registrados.");
   renderSuitabilityReport();
   renderReport(elements.qualityDecisionReport, analytics.qualityDecisionCounts, "Sin decisiones de calidad.");
+  repairVisibleText();
 }
 
 function applyRoleVisibility(permissions) {
@@ -1110,6 +1157,7 @@ async function renderHistoryTable() {
   const rows = filterHistoryRows(state.historyRows || []);
   elements.historyTable.innerHTML = renderTable(getHistoryColumns(false), rows, "No hay historial registrado todavía.");
   bindRecordActions(elements.historyTable);
+  repairVisibleText(elements.historyTable);
 }
 
 function renderReport(container, rows, emptyText) {
@@ -2191,7 +2239,7 @@ async function request(path, options = {}) {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || "Ocurrió un error en el servidor.");
-  return data;
+  return normalizeIncomingData(data);
 }
 
 async function requestBlob(path, options = {}) {
@@ -2236,7 +2284,7 @@ function formatNumber(value) {
 
 function escapeHtml(value) {
   const div = document.createElement("div");
-  div.textContent = value ?? "";
+  div.textContent = normalizeDisplayText(value ?? "");
   return div.innerHTML;
 }
 
