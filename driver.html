@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Registro QR de conductores</title>
-    <link rel="stylesheet" href="styles.css?v=20260427b" />
+  <link rel="stylesheet" href="styles.css?v=20260429b" />
   </head>
   <body class="public-body">
     <div class="public-shell">
@@ -12,7 +12,7 @@
         <p class="eyebrow">Registro QR</p>
         <h1>Registro de conductores en planta</h1>
         <p class="hero-text">
-          Completa tu enturnamiento solo dentro de la sede autorizada. Debes validar GPS, tomar selfie y firmar en pantalla.
+          Completa tu enturnamiento solo dentro de la sede autorizada. Debes validar GPS, tomar selfie, firmar en pantalla y capturar dos fotos del vehiculo.
         </p>
         <img class="public-logo" src="assets/logo-logistica.png" alt="Logo Diana Logistica" />
       </header>
@@ -83,10 +83,38 @@
                 </div>
               </div>
             </section>
+
+            <section class="capture-card">
+              <h4>Foto obligatoria del cabezote</h4>
+              <p>Debes tomar una foto reciente del frente del vehiculo donde se vea la placa. No se aceptan archivos adjuntos de galeria.</p>
+              <div id="vehicleHeadPreview" class="selfie-preview">
+                <span class="muted-text">Aqui se mostrara la foto del cabezote y la placa visible.</span>
+              </div>
+              <div class="capture-actions-row">
+                <span id="vehicleHeadStatus" class="signature-status">Foto pendiente.</span>
+                <button id="vehicleHeadCaptureButton" class="ghost" type="button">Tomar foto del cabezote</button>
+              </div>
+            </section>
+
+            <section class="capture-card">
+              <h4>Foto obligatoria del interior</h4>
+              <p>Debes fotografiar el interior de la carroceria para confirmar que el vehiculo esta desocupado y sin carga.</p>
+              <div id="vehicleCargoPreview" class="selfie-preview">
+                <span class="muted-text">Aqui se mostrara la foto del interior de la carroceria.</span>
+              </div>
+              <label class="checkbox-inline">
+                <input id="vehicleCargoConfirmEmpty" type="checkbox" />
+                <span>Confirmo que la carroceria esta vacia y lista para revisar.</span>
+              </label>
+              <div class="capture-actions-row">
+                <span id="vehicleCargoStatus" class="signature-status">Foto pendiente.</span>
+                <button id="vehicleCargoCaptureButton" class="ghost" type="button">Tomar foto interior</button>
+              </div>
+            </section>
           </div>
 
           <div class="wide">
-            <button id="publicSubmitButton" class="primary wide" type="submit" disabled>Registrarme en turno</button>
+            <button id="publicSubmitButton" class="primary wide" type="submit" disabled>Finalizar registro y asignar turno</button>
           </div>
         </form>
       </section>
@@ -124,7 +152,28 @@
       </section>
     </div>
 
+    <div id="cameraCaptureModal" class="modal hidden">
+      <div class="modal-card public-camera-modal">
+        <div class="panel-heading">
+          <div>
+            <h3 id="cameraCaptureTitle">Captura obligatoria</h3>
+            <p id="cameraCaptureText">Alinea bien el vehiculo antes de tomar la foto.</p>
+          </div>
+        </div>
+        <div class="camera-capture-shell">
+          <video id="cameraCaptureVideo" class="camera-capture-video" autoplay playsinline muted></video>
+          <canvas id="cameraCaptureCanvas" class="hidden"></canvas>
+        </div>
+        <p id="cameraCaptureStatus" class="muted-text">La camara se usa solo para tomar la foto en este momento del registro.</p>
+        <div class="modal-actions">
+          <button id="cameraCancelButton" class="ghost" type="button">Cancelar</button>
+          <button id="cameraShutterButton" class="primary" type="button">Tomar foto</button>
+        </div>
+      </div>
+    </div>
+
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-    <script src="driver.js?v=20260427b" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js" defer></script>
+  <script src="driver.js?v=20260429b" defer></script>
   </body>
 </html>

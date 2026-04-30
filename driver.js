@@ -11,6 +11,16 @@ const state = {
   driverSelfieDataUrl: "",
   signatureDataUrl: "",
   signatureHasDrawn: false,
+  vehicleHeadPhotoDataUrl: "",
+  vehicleCargoPhotoDataUrl: "",
+  vehiclePlateDetected: false,
+  vehiclePlateDetectedText: "",
+  vehicleCargoConfirmedEmpty: false,
+  currentCaptureKind: null,
+  currentCapturePurpose: "",
+  currentCaptureCenterId: "",
+  captureStream: null,
+  captureBusy: false,
   destinationMenuOpen: false,
   isSubmitting: false,
   activeQueueGroup: null,
@@ -37,12 +47,27 @@ const elements = {
   signatureCanvas: document.querySelector("#signatureCanvas"),
   signatureStatus: document.querySelector("#signatureStatus"),
   clearSignatureButton: document.querySelector("#clearSignatureButton"),
+  vehicleHeadPreview: document.querySelector("#vehicleHeadPreview"),
+  vehicleHeadStatus: document.querySelector("#vehicleHeadStatus"),
+  vehicleHeadCaptureButton: document.querySelector("#vehicleHeadCaptureButton"),
+  vehicleCargoPreview: document.querySelector("#vehicleCargoPreview"),
+  vehicleCargoStatus: document.querySelector("#vehicleCargoStatus"),
+  vehicleCargoCaptureButton: document.querySelector("#vehicleCargoCaptureButton"),
+  vehicleCargoConfirmEmpty: document.querySelector("#vehicleCargoConfirmEmpty"),
   publicSubmitButton: document.querySelector("#publicSubmitButton"),
   publicTrackingCard: document.querySelector("#publicTrackingCard"),
   publicQueueList: document.querySelector("#publicQueueList"),
   publicCityQueues: document.querySelector("#publicCityQueues"),
   publicQueuePanel: document.querySelector("#publicQueuePanel"),
   publicCityQueuesPanel: document.querySelector("#publicCityQueuesPanel"),
+  cameraCaptureModal: document.querySelector("#cameraCaptureModal"),
+  cameraCaptureTitle: document.querySelector("#cameraCaptureTitle"),
+  cameraCaptureText: document.querySelector("#cameraCaptureText"),
+  cameraCaptureVideo: document.querySelector("#cameraCaptureVideo"),
+  cameraCaptureCanvas: document.querySelector("#cameraCaptureCanvas"),
+  cameraCaptureStatus: document.querySelector("#cameraCaptureStatus"),
+  cameraCancelButton: document.querySelector("#cameraCancelButton"),
+  cameraShutterButton: document.querySelector("#cameraShutterButton"),
   toast: document.querySelector("#toast"),
 };
 
@@ -67,10 +92,22 @@ function bootstrap() {
     state.activeQueueGroup = selectedQueueGroup();
     renderSelectedCityTurnsPreview();
   });
+  document.querySelector("#publicPlate").addEventListener("input", invalidateHeadPhotoIfPlateChanges);
   elements.publicSelfieInput.addEventListener("change", handleSelfieChange);
   elements.clearSignatureButton.addEventListener("click", clearSignature);
+  elements.vehicleHeadCaptureButton.addEventListener("click", () => startVehicleCameraCapture("head"));
+  elements.vehicleCargoCaptureButton.addEventListener("click", () => startVehicleCameraCapture("cargo"));
+  elements.vehicleCargoConfirmEmpty.addEventListener("change", () => {
+    state.vehicleCargoConfirmedEmpty = Boolean(elements.vehicleCargoConfirmEmpty.checked);
+    updateSubmitState();
+  });
   elements.publicDestinationToggle.addEventListener("click", toggleDestinationMenu);
   document.addEventListener("click", handleDocumentClick);
+  elements.cameraCancelButton.addEventListener("click", closeVehicleCameraCapture);
+  elements.cameraShutterButton.addEventListener("click", captureVehicleCameraPhoto);
+  elements.cameraCaptureModal.addEventListener("click", (event) => {
+    if (event.target === elements.cameraCaptureModal) closeVehicleCameraCapture();
+  });
   setupSignaturePad();
   togglePublicQueuePanels(Boolean(state.trackingToken));
   // Mostrar último estado conocido inmediatamente mientras se refresca
@@ -271,8 +308,193 @@ function requestGps() {
   );
 }
 
+async function refreshGpsValidationForStep(stepLabel) {
+  if (!navigator.geolocation) {
+    state.gps = null;
+    state.gpsAllowed = false;
+    state.geofenceMessage = "Este dispositivo no soporta geolocalizacion.";
+    setGpsStatus("GPS no disponible", state.geofenceMessage);
+    updateRegistrationGate();
+    return false;
+  }
+  try {
+    const position = await new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        timeout: 12000,
+        maximumAge: 0,
+      });
+    });
+    state.gps = {
+      lat: position.coords.latitude,
+      lng: position.coords.longitude,
+    };
+    const match = detectCenterFromGps();
+    if (!match) {
+      state.gpsAllowed = false;
+      state.geofenceMessage = `Debes estar dentro de la geocerca para ${stepLabel}.`;
+      setGpsStatus("Fuera de planta", state.geofenceMessage);
+      updateRegistrationGate();
+      return false;
+    }
+    state.gpsAllowed = true;
+    state.geofenceMessage = `Ubicacion validada en ${match.name}.`;
+    if (match.id !== state.centerId) {
+      await loadConfig(match.id);
+    } else {
+      updateRegistrationGate();
+    }
+    setGpsStatus("Ubicacion validada", state.geofenceMessage);
+    return true;
+  } catch (error) {
+    state.gps = null;
+    state.gpsAllowed = false;
+    state.geofenceMessage = `No se pudo obtener tu ubicacion: ${error.message}`;
+    setGpsStatus("GPS bloqueado", state.geofenceMessage);
+    updateRegistrationGate();
+    return false;
+  }
+}
+
+function invalidateHeadPhotoIfPlateChanges() {
+  if (!state.vehicleHeadPhotoDataUrl && !state.vehiclePlateDetected) return;
+  state.vehicleHeadPhotoDataUrl = "";
+  state.vehiclePlateDetected = false;
+  state.vehiclePlateDetectedText = "";
+  elements.vehicleHeadPreview.innerHTML = `<span class="muted-text">La placa cambio. Debes tomar de nuevo la foto del cabezote.</span>`;
+  elements.vehicleHeadStatus.textContent = "Foto reiniciada por cambio de placa.";
+  updateSubmitState();
+}
+
+async function startVehicleCameraCapture(kind) {
+  if (state.captureBusy) return;
+  const title = kind === "head" ? "Foto del cabezote" : "Foto del interior";
+  const geofenceOk = await refreshGpsValidationForStep(kind === "head" ? "tomar la foto del cabezote" : "tomar la foto del interior");
+  if (!geofenceOk) {
+    showToast("Debes estar dentro de la geocerca para tomar la foto.");
+    return;
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    showStatusBanner(
+      "error",
+      "Camara no disponible",
+      "Este dispositivo o navegador no permite abrir la camara en este momento.",
+    );
+    return;
+  }
+  closeVehicleCameraCapture();
+  state.captureBusy = true;
+  state.currentCaptureKind = kind;
+  state.currentCapturePurpose = kind === "head"
+    ? "Enfoca el frente del vehiculo y asegúrate de que la placa se vea completa."
+    : "Enfoca el interior de la carroceria para dejar evidencia de que esta vacia.";
+  state.currentCaptureCenterId = state.centerId;
+  elements.cameraCaptureTitle.textContent = title;
+  elements.cameraCaptureText.textContent = state.currentCapturePurpose;
+  elements.cameraCaptureStatus.textContent = "Abriendo la camara...";
+  elements.cameraCaptureModal.classList.remove("hidden");
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+      },
+    });
+    state.captureStream = stream;
+    elements.cameraCaptureVideo.srcObject = stream;
+    await elements.cameraCaptureVideo.play();
+    elements.cameraCaptureStatus.textContent = kind === "head"
+      ? "Cuando la placa este nítida, toma la foto."
+      : "Cuando el interior se vea completo, toma la foto.";
+  } catch (error) {
+    elements.cameraCaptureStatus.textContent = "No se pudo abrir la camara.";
+    closeVehicleCameraCapture();
+    showStatusBanner(
+      "error",
+      "No se pudo abrir la camara",
+      "Acepta los permisos del navegador y vuelve a intentarlo.",
+    );
+    showToast("No se pudo abrir la camara.");
+  } finally {
+    state.captureBusy = false;
+  }
+}
+
+function closeVehicleCameraCapture() {
+  if (state.captureStream) {
+    state.captureStream.getTracks().forEach((track) => track.stop());
+  }
+  state.captureStream = null;
+  state.currentCaptureKind = null;
+  state.currentCapturePurpose = "";
+  state.currentCaptureCenterId = "";
+  state.captureBusy = false;
+  elements.cameraCaptureVideo.pause?.();
+  elements.cameraCaptureVideo.srcObject = null;
+  elements.cameraCaptureStatus.textContent = "La camara se usa solo para tomar la foto en este momento del registro.";
+  elements.cameraCaptureModal.classList.add("hidden");
+}
+
+async function captureVehicleCameraPhoto() {
+  if (state.captureBusy || !state.captureStream || !state.currentCaptureKind) return;
+  state.captureBusy = true;
+  elements.cameraCaptureStatus.textContent = "Procesando foto...";
+  try {
+    const geofenceOk = await refreshGpsValidationForStep(
+      state.currentCaptureKind === "head" ? "tomar la foto del cabezote" : "tomar la foto del interior",
+    );
+    if (!geofenceOk) {
+      closeVehicleCameraCapture();
+      showToast("La geocerca se invalido. Vuelve a validar tu ubicacion.");
+      return;
+    }
+
+    const dataUrl = captureCurrentVideoFrame();
+    if (state.currentCaptureKind === "head") {
+      const expectedPlate = normalizePlateValue(document.querySelector("#publicPlate").value);
+      const detection = await detectPlateOnImage(dataUrl, expectedPlate);
+      if (!detection.ok) {
+        elements.cameraCaptureStatus.textContent = detection.message;
+        showToast("No se detecto claramente la placa.");
+        return;
+      }
+      state.vehicleHeadPhotoDataUrl = dataUrl;
+      state.vehiclePlateDetected = true;
+      state.vehiclePlateDetectedText = detection.text || expectedPlate;
+      elements.vehicleHeadPreview.innerHTML = `<img src="${dataUrl}" alt="Foto del cabezote del vehiculo" />`;
+      elements.vehicleHeadStatus.textContent = `Placa detectada: ${detection.text || expectedPlate}`;
+      showToast("Foto del cabezote registrada correctamente.");
+    } else {
+      state.vehicleCargoPhotoDataUrl = dataUrl;
+      elements.vehicleCargoPreview.innerHTML = `<img src="${dataUrl}" alt="Foto del interior de la carroceria" />`;
+      elements.vehicleCargoStatus.textContent = state.vehicleCargoConfirmedEmpty
+        ? "Foto interior capturada y confirmacion marcada."
+        : "Foto interior capturada. Marca la confirmacion de carroceria vacia.";
+      showToast("Foto interior registrada correctamente.");
+    }
+    closeVehicleCameraCapture();
+    updateSubmitState();
+  } catch (error) {
+    elements.cameraCaptureStatus.textContent = error.message || "No se pudo procesar la foto.";
+    showToast(error.message || "No se pudo procesar la foto.");
+  } finally {
+    state.captureBusy = false;
+  }
+}
+
 async function submitPublicRegistration(event) {
   event.preventDefault();
+  const geofenceOk = await refreshGpsValidationForStep("finalizar el registro");
+  if (!geofenceOk) {
+    showStatusBanner(
+      "error",
+      "Registro bloqueado por geocerca",
+      "Debes estar dentro de la planta y validar nuevamente la ubicacion antes de asignar turno.",
+    );
+    return;
+  }
   const validationIssues = collectValidationIssues();
   if (validationIssues.length) {
     showStatusBanner(
@@ -299,6 +521,11 @@ async function submitPublicRegistration(event) {
     gpsLng: state.gps.lng,
     driverSelfieDataUrl: state.driverSelfieDataUrl,
     driverSignatureDataUrl: state.signatureDataUrl,
+    vehicleHeadPhotoDataUrl: state.vehicleHeadPhotoDataUrl,
+    vehicleCargoPhotoDataUrl: state.vehicleCargoPhotoDataUrl,
+    vehiclePlateDetected: state.vehiclePlateDetected,
+    vehiclePlateDetectedText: state.vehiclePlateDetectedText,
+    vehicleCargoConfirmedEmpty: state.vehicleCargoConfirmedEmpty,
   };
   try {
     setSubmittingState(true);
@@ -625,14 +852,25 @@ function resetRegistrationMedia() {
   state.driverSelfieDataUrl = "";
   state.signatureDataUrl = "";
   state.signatureHasDrawn = false;
+  state.vehicleHeadPhotoDataUrl = "";
+  state.vehicleCargoPhotoDataUrl = "";
+  state.vehiclePlateDetected = false;
+  state.vehiclePlateDetectedText = "";
+  state.vehicleCargoConfirmedEmpty = false;
   state.gps = null;
   state.gpsAllowed = false;
   state.activeQueueGroup = null;
   state.geofenceMessage = "Debes validar nuevamente tu ubicacion para un nuevo registro.";
   elements.publicSelfieInput.value = "";
   elements.publicSelfiePreview.innerHTML = `<span class="muted-text">Aqui veras la selfie antes de enviar el registro.</span>`;
+  elements.vehicleHeadPreview.innerHTML = `<span class="muted-text">Aqui se mostrara la foto del cabezote y la placa visible.</span>`;
+  elements.vehicleCargoPreview.innerHTML = `<span class="muted-text">Aqui se mostrara la foto del interior de la carroceria.</span>`;
+  elements.vehicleHeadStatus.textContent = "Foto pendiente.";
+  elements.vehicleCargoStatus.textContent = "Foto pendiente.";
+  elements.vehicleCargoConfirmEmpty.checked = false;
   clearSignatureCanvas();
   elements.signatureStatus.textContent = "Firma pendiente.";
+  closeVehicleCameraCapture();
   setGpsStatus("GPS requerido", state.geofenceMessage);
   updateRegistrationGate();
 }
@@ -673,7 +911,11 @@ function setFormDisabled(disabled) {
   elements.publicDestinationMenu.querySelectorAll("input").forEach((input) => {
     input.disabled = disabled;
   });
+  elements.vehicleHeadCaptureButton.disabled = disabled;
+  elements.vehicleCargoCaptureButton.disabled = disabled;
+  elements.vehicleCargoConfirmEmpty.disabled = disabled;
   if (disabled) closeDestinationMenu();
+  if (disabled) closeVehicleCameraCapture();
 }
 
 function updateSubmitState() {
@@ -691,7 +933,11 @@ function updateSubmitState() {
     formReady &&
     Boolean(state.gpsAllowed) &&
     Boolean(state.driverSelfieDataUrl) &&
-    Boolean(state.signatureDataUrl);
+    Boolean(state.signatureDataUrl) &&
+    Boolean(state.vehicleHeadPhotoDataUrl) &&
+    Boolean(state.vehiclePlateDetected) &&
+    Boolean(state.vehicleCargoPhotoDataUrl) &&
+    Boolean(state.vehicleCargoConfirmedEmpty);
   elements.publicSubmitButton.disabled = !canSubmit;
 }
 
@@ -805,6 +1051,10 @@ function collectValidationIssues() {
     { ok: selectedDestinationIds().length > 0, label: "Seleccionar al menos un destino", element: elements.publicDestinationToggle },
     { ok: Boolean(state.driverSelfieDataUrl), label: "Selfie del conductor", element: elements.publicSelfieInput },
     { ok: Boolean(state.signatureDataUrl), label: "Firma del conductor", element: elements.signatureCanvas },
+    { ok: Boolean(state.vehicleHeadPhotoDataUrl), label: "Foto del cabezote del vehiculo", element: elements.vehicleHeadCaptureButton },
+    { ok: Boolean(state.vehiclePlateDetected), label: "Foto del cabezote con placa claramente detectada", element: elements.vehicleHeadCaptureButton },
+    { ok: Boolean(state.vehicleCargoPhotoDataUrl), label: "Foto del interior de la carroceria", element: elements.vehicleCargoCaptureButton },
+    { ok: Boolean(state.vehicleCargoConfirmedEmpty), label: "Confirmar que la carroceria esta vacia", element: elements.vehicleCargoConfirmEmpty },
   ];
   checks.forEach((check) => {
     if (!check.ok) issues.push(check);
@@ -822,7 +1072,7 @@ function focusValidationIssue(issue) {
 
 function setSubmittingState(isSubmitting) {
   state.isSubmitting = isSubmitting;
-  elements.publicSubmitButton.textContent = isSubmitting ? "Guardando informacion..." : "Registrarme en turno";
+  elements.publicSubmitButton.textContent = isSubmitting ? "Validando y asignando turno..." : "Finalizar registro y asignar turno";
   updateSubmitState();
 }
 
@@ -891,4 +1141,129 @@ function compressImageFile(file, maxSize, quality) {
     };
     image.src = objectUrl;
   });
+}
+
+function captureCurrentVideoFrame() {
+  const video = elements.cameraCaptureVideo;
+  const canvas = elements.cameraCaptureCanvas;
+  const sourceWidth = video.videoWidth || 1280;
+  const sourceHeight = video.videoHeight || 720;
+  const scale = Math.min(1, 1440 / Math.max(sourceWidth, sourceHeight));
+  const width = Math.max(1, Math.round(sourceWidth * scale));
+  const height = Math.max(1, Math.round(sourceHeight * scale));
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d", { alpha: false });
+  if (!context) {
+    throw new Error("No se pudo preparar la foto capturada.");
+  }
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, width, height);
+  context.drawImage(video, 0, 0, width, height);
+  return canvas.toDataURL("image/jpeg", 0.84);
+}
+
+async function detectPlateOnImage(dataUrl, expectedPlate) {
+  if (!expectedPlate) {
+    return {
+      ok: false,
+      text: "",
+      message: "Primero escribe la placa antes de tomar la foto del cabezote.",
+    };
+  }
+  const extractedTexts = [];
+
+  if ("TextDetector" in window) {
+    try {
+      const detector = new window.TextDetector();
+      const blob = await dataUrlToBlob(dataUrl);
+      const bitmap = await createImageBitmap(blob);
+      const blocks = await detector.detect(bitmap);
+      bitmap.close?.();
+      const text = (blocks || [])
+        .map((block) => block.rawValue || "")
+        .join(" ")
+        .trim();
+      if (text) extractedTexts.push(text);
+    } catch {
+      // fallback to OCR below
+    }
+  }
+
+  if (!findBestPlateMatch(expectedPlate, extractedTexts.join(" ")).ok && window.Tesseract?.recognize) {
+    try {
+      const result = await window.Tesseract.recognize(dataUrl, "eng");
+      const text = result?.data?.text?.trim?.() || "";
+      if (text) extractedTexts.push(text);
+    } catch {
+      // ignore and report final failure
+    }
+  }
+
+  const bestMatch = findBestPlateMatch(expectedPlate, extractedTexts.join(" "));
+  if (bestMatch.ok) {
+    return {
+      ok: true,
+      text: bestMatch.candidate || expectedPlate,
+      message: "Placa detectada correctamente.",
+    };
+  }
+  return {
+    ok: false,
+    text: normalizePlateValue(extractedTexts.join(" ")),
+    message: `No se detecto claramente la placa ${expectedPlate}. Vuelve a tomar la foto enfocando mejor la placa.`,
+  };
+}
+
+function findBestPlateMatch(expectedPlate, rawText) {
+  const normalizedText = normalizePlateValue(rawText);
+  if (!normalizedText) return { ok: false, candidate: "" };
+  if (normalizedText.includes(expectedPlate)) {
+    return { ok: true, candidate: expectedPlate };
+  }
+  const candidateLengths = [expectedPlate.length - 1, expectedPlate.length, expectedPlate.length + 1].filter((size) => size > 0);
+  let bestCandidate = "";
+  let bestDistance = Number.POSITIVE_INFINITY;
+  candidateLengths.forEach((size) => {
+    for (let index = 0; index <= Math.max(0, normalizedText.length - size); index += 1) {
+      const candidate = normalizedText.slice(index, index + size);
+      const distance = levenshteinDistance(expectedPlate, candidate);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestCandidate = candidate;
+      }
+    }
+  });
+  return {
+    ok: bestDistance <= 1,
+    candidate: bestCandidate,
+  };
+}
+
+function levenshteinDistance(left, right) {
+  const rows = Array.from({ length: left.length + 1 }, () => Array(right.length + 1).fill(0));
+  for (let i = 0; i <= left.length; i += 1) rows[i][0] = i;
+  for (let j = 0; j <= right.length; j += 1) rows[0][j] = j;
+  for (let i = 1; i <= left.length; i += 1) {
+    for (let j = 1; j <= right.length; j += 1) {
+      const cost = left[i - 1] === right[j - 1] ? 0 : 1;
+      rows[i][j] = Math.min(
+        rows[i - 1][j] + 1,
+        rows[i][j - 1] + 1,
+        rows[i - 1][j - 1] + cost,
+      );
+    }
+  }
+  return rows[left.length][right.length];
+}
+
+function normalizePlateValue(value) {
+  return String(value || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+}
+
+async function dataUrlToBlob(dataUrl) {
+  const response = await fetch(dataUrl);
+  return response.blob();
 }

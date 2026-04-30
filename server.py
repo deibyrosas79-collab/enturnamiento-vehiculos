@@ -219,6 +219,13 @@ def parse_float(value: object) -> Optional[float]:
         raise AppError("El valor numerico recibido no es valido.", 400) from exc
 
 
+def parse_bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    normalized = clean_text(value).lower()
+    return normalized in {"1", "true", "si", "sí", "yes", "on"}
+
+
 def queue_group_for_carrier_code(carrier_code: Optional[str]) -> str:
     return QUEUE_GROUP_DIANA if clean_text(carrier_code) == DIANA_AGRICOLA_CODE else QUEUE_GROUP_GENERAL
 
@@ -634,6 +641,11 @@ def ensure_vehicle_columns(db: sqlite3.Connection) -> None:
         "empty_weight_kg": "REAL",
         "driver_selfie_url": "TEXT",
         "driver_signature_url": "TEXT",
+        "vehicle_head_photo_url": "TEXT",
+        "vehicle_cargo_photo_url": "TEXT",
+        "vehicle_plate_detected": "INTEGER DEFAULT 0",
+        "vehicle_plate_detected_text": "TEXT",
+        "vehicle_cargo_confirmed_empty": "INTEGER DEFAULT 0",
         "destination_ids_json": "TEXT",
         "registration_channel": "TEXT DEFAULT 'DESK'",
         "gps_lat": "REAL",
@@ -829,9 +841,10 @@ def create_session(db: sqlite3.Connection, user_id: str) -> str:
 
 
 def build_auth_payload(user: sqlite3.Row, origin: str, token: str) -> Dict[str, Any]:
-    state = get_user_state(user, origin)
-    state["sessionToken"] = token
-    return state
+    return {
+        "user": serialize_authenticated_user(user),
+        "sessionToken": token,
+    }
 
 
 def build_mobile_auth_payload(user: sqlite3.Row, token: str) -> Dict[str, Any]:
@@ -995,21 +1008,39 @@ def summarize_inspection_for_vehicle(inspection: Optional[Dict[str, Any]]) -> Op
     }
 
 
-def load_inspections_by_vehicle(db: sqlite3.Connection, include_media: bool = True) -> Dict[str, List[Dict[str, Any]]]:
+def load_inspections_by_vehicle(
+    db: sqlite3.Connection,
+    include_media: bool = True,
+    vehicle_ids: Optional[List[str]] = None,
+) -> Dict[str, List[Dict[str, Any]]]:
     grouped: Dict[str, List[Dict[str, Any]]] = {}
-    rows = db.execute(
-        "SELECT * FROM quality_inspections ORDER BY reviewed_at DESC, created_at DESC"
-    ).fetchall()
+    params: Tuple[Any, ...] = ()
+    sql = "SELECT * FROM quality_inspections"
+    if vehicle_ids:
+        placeholders = ",".join("?" for _ in vehicle_ids)
+        sql += f" WHERE vehicle_id IN ({placeholders})"
+        params = tuple(vehicle_ids)
+    sql += " ORDER BY reviewed_at DESC, created_at DESC"
+    rows = db.execute(sql, params).fetchall()
     for row in rows:
         grouped.setdefault(row["vehicle_id"], []).append(serialize_inspection(row, include_media=include_media))
     return grouped
 
 
-def load_latest_inspections(db: sqlite3.Connection, include_media: bool = True) -> Dict[str, Dict[str, Any]]:
+def load_latest_inspections(
+    db: sqlite3.Connection,
+    include_media: bool = True,
+    vehicle_ids: Optional[List[str]] = None,
+) -> Dict[str, Dict[str, Any]]:
     inspections: Dict[str, Dict[str, Any]] = {}
-    rows = db.execute(
-        "SELECT * FROM quality_inspections ORDER BY reviewed_at DESC, created_at DESC"
-    ).fetchall()
+    params: Tuple[Any, ...] = ()
+    sql = "SELECT * FROM quality_inspections"
+    if vehicle_ids:
+        placeholders = ",".join("?" for _ in vehicle_ids)
+        sql += f" WHERE vehicle_id IN ({placeholders})"
+        params = tuple(vehicle_ids)
+    sql += " ORDER BY reviewed_at DESC, created_at DESC"
+    rows = db.execute(sql, params).fetchall()
     for row in rows:
         if row["vehicle_id"] in inspections:
             continue
@@ -1063,6 +1094,7 @@ def build_destination_options(row: sqlite3.Row, lookup: Dict[str, Dict[str, Any]
 def build_city_turn_maps(
     queued_rows: List[sqlite3.Row],
     destination_lookup: Dict[str, Dict[str, Any]],
+    include_lists: bool = True,
 ) -> Tuple[Dict[str, Dict[str, int]], Dict[str, List[Dict[str, Any]]]]:
     position_map: Dict[str, Dict[str, int]] = {}
     city_lists: Dict[str, List[Dict[str, Any]]] = {}
@@ -1076,6 +1108,8 @@ def build_city_turn_maps(
             counters[city_key] = counters.get(city_key, 0) + 1
             queue_group = row["queue_group"] or queue_group_for_carrier_code(row["carrier_code"])
             position_map.setdefault(row["id"], {})[city_key] = counters[city_key]
+            if not include_lists:
+                continue
             city_lists.setdefault(city_key, []).append(
                 {
                     "vehicleId": row["id"],
@@ -1127,8 +1161,15 @@ def serialize_vehicle(
         "emptyWeightKg": row["empty_weight_kg"],
         "hasDriverSelfie": bool(row["driver_selfie_url"]),
         "hasDriverSignature": bool(row["driver_signature_url"]),
+        "hasVehicleHeadPhoto": bool(row["vehicle_head_photo_url"]),
+        "hasVehicleCargoPhoto": bool(row["vehicle_cargo_photo_url"]),
         "driverSelfieUrl": row["driver_selfie_url"] if include_media else None,
         "driverSignatureUrl": row["driver_signature_url"] if include_media else None,
+        "vehicleHeadPhotoUrl": row["vehicle_head_photo_url"] if include_media else None,
+        "vehicleCargoPhotoUrl": row["vehicle_cargo_photo_url"] if include_media else None,
+        "vehiclePlateDetected": bool(row["vehicle_plate_detected"]),
+        "vehiclePlateDetectedText": row["vehicle_plate_detected_text"],
+        "vehicleCargoConfirmedEmpty": bool(row["vehicle_cargo_confirmed_empty"]),
         "destinationId": row["destination_id"],
         "destinationIds": parse_destination_ids(row),
         "destinationOptions": build_destination_options(row, destination_lookup),
@@ -1207,6 +1248,37 @@ def build_analytics(rejected: List[Dict[str, Any]], inspections: List[Dict[str, 
         "suitabilityCounts": [{"label": key, "count": value} for key, value in suitability_counts.items()],
         "qualityDecisionCounts": [{"label": key, "count": value} for key, value in quality_decisions.items()],
     }
+
+
+def build_empty_analytics() -> Dict[str, Any]:
+    return {
+        "rejectedByCarrier": [],
+        "topRejectionReasons": [],
+        "suitabilityCounts": [],
+        "qualityDecisionCounts": [],
+        "loaded": False,
+    }
+
+
+def count_daily_quality_decisions(db: sqlite3.Connection, vehicle_ids: List[str]) -> Tuple[int, int]:
+    if not vehicle_ids:
+        return 0, 0
+    placeholders = ",".join("?" for _ in vehicle_ids)
+    rows = db.execute(
+        f"SELECT final_decision, reviewed_at FROM quality_inspections WHERE vehicle_id IN ({placeholders})",
+        tuple(vehicle_ids),
+    ).fetchall()
+    today_local = now_local()
+    approved = 0
+    rejected = 0
+    for row in rows:
+        if not is_same_local_day(row["reviewed_at"], today_local):
+            continue
+        if row["final_decision"] == QUALITY_APPROVED:
+            approved += 1
+        elif row["final_decision"] == QUALITY_REJECTED:
+            rejected += 1
+    return approved, rejected
 
 
 def build_history_rows(
@@ -1880,11 +1952,11 @@ def get_user_state(user: sqlite3.Row, origin: str) -> Dict[str, Any]:
             f"SELECT * FROM vehicles WHERE center_id IN ({placeholders}) ORDER BY CASE status WHEN 'QUEUED' THEN 0 WHEN 'ASSIGNED' THEN 1 ELSE 2 END, queue_position, created_at DESC",
             visible_center_ids,
         ).fetchall()
+        visible_vehicle_ids = [row["id"] for row in vehicles]
         queued_rows = [row for row in vehicles if row["status"] == QUEUE_STATUS_ACTIVE]
         turn_positions = calculate_turn_positions(queued_rows)
-        city_turn_map, city_queue_lists = build_city_turn_maps(queued_rows, destination_lookup)
-        latest_inspections = load_latest_inspections(db, include_media=False)
-        inspections_by_vehicle = load_inspections_by_vehicle(db, include_media=False)
+        city_turn_map, _city_queue_lists = build_city_turn_maps(queued_rows, destination_lookup, include_lists=False)
+        latest_inspections = load_latest_inspections(db, include_media=False, vehicle_ids=visible_vehicle_ids)
 
         queued = [
             serialize_vehicle(row, turn_positions, latest_inspections, destination_lookup, city_turn_map, include_media=False, inspection_summary_only=True)
@@ -1914,23 +1986,9 @@ def get_user_state(user: sqlite3.Row, origin: str) -> Dict[str, Any]:
             }
             for row in db.execute("SELECT * FROM users ORDER BY role, full_name").fetchall()
         ]
-        inspection_rows = db.execute(
-            "SELECT * FROM quality_inspections ORDER BY reviewed_at DESC, created_at DESC"
-        ).fetchall()
-        visible_vehicle_ids = {vehicle["id"] for vehicle in queued + assigned + rejected}
-        inspections = [serialize_inspection(row, include_media=False) for row in inspection_rows if row["vehicle_id"] in visible_vehicle_ids]
+        approved_today_count, rejected_today_count = count_daily_quality_decisions(db, visible_vehicle_ids)
 
     quality_pending = [vehicle for vehicle in queued if vehicle["qualityStatus"] in {QUALITY_PENDING, QUALITY_IN_PROGRESS}]
-    today_local = now_local()
-    approved_today = [
-        item for item in inspections
-        if item["finalDecision"] == QUALITY_APPROVED and is_same_local_day(item["reviewedAt"], today_local)
-    ]
-    rejected_today = [
-        item for item in inspections
-        if item["finalDecision"] == QUALITY_REJECTED and is_same_local_day(item["reviewedAt"], today_local)
-    ]
-    history_rows = build_history_rows(queued + assigned + rejected, inspections_by_vehicle)
     site_config = {
         "siteName": preferred_center["name"],
         "siteLat": preferred_center["siteLat"],
@@ -1949,24 +2007,21 @@ def get_user_state(user: sqlite3.Row, origin: str) -> Dict[str, Any]:
         "destinations": destinations,
         "carriers": carriers,
         "queued": queued,
-        "cityQueues": [
-            {"city": city, "vehicles": rows}
-            for city, rows in sorted(city_queue_lists.items(), key=lambda item: item[0])
-        ],
+        "cityQueues": [],
         "assigned": assigned,
         "rejected": rejected,
         "history": [],
         "quality": {
-            "dailyApprovedCount": len(approved_today),
-            "dailyRejectedCount": len(rejected_today),
+            "dailyApprovedCount": approved_today_count,
+            "dailyRejectedCount": rejected_today_count,
             "pendingCount": len(quality_pending),
         },
         "users": users if user["role"] == ROLE_ADMIN else [],
         "settings": site_config,
         "analytics": {
-            **build_analytics(rejected, inspections),
-            "dailyApprovedCount": len(approved_today),
-            "dailyRejectedCount": len(rejected_today),
+            **build_empty_analytics(),
+            "dailyApprovedCount": approved_today_count,
+            "dailyRejectedCount": rejected_today_count,
             "queuedCount": len(queued),
             "qualityPendingCount": len(quality_pending),
         },
@@ -2004,16 +2059,55 @@ def get_history_rows_for_user(user: sqlite3.Row) -> List[Dict[str, Any]]:
             f"SELECT * FROM vehicles WHERE center_id IN ({placeholders}) ORDER BY CASE status WHEN 'QUEUED' THEN 0 WHEN 'ASSIGNED' THEN 1 ELSE 2 END, queue_position, created_at DESC",
             visible_center_ids,
         ).fetchall()
+        visible_vehicle_ids = [row["id"] for row in vehicles]
         queued_rows = [row for row in vehicles if row["status"] == QUEUE_STATUS_ACTIVE]
         turn_positions = calculate_turn_positions(queued_rows)
-        city_turn_map, _city_queue_lists = build_city_turn_maps(queued_rows, destination_lookup)
-        latest_inspections = load_latest_inspections(db, include_media=False)
-        inspections_by_vehicle = load_inspections_by_vehicle(db, include_media=False)
+        city_turn_map, _city_queue_lists = build_city_turn_maps(queued_rows, destination_lookup, include_lists=False)
+        latest_inspections = load_latest_inspections(db, include_media=False, vehicle_ids=visible_vehicle_ids)
+        inspections_by_vehicle = load_inspections_by_vehicle(db, include_media=False, vehicle_ids=visible_vehicle_ids)
         serialized = [
             serialize_vehicle(row, turn_positions, latest_inspections, destination_lookup, city_turn_map, include_media=False, inspection_summary_only=True)
             for row in vehicles
         ]
     return build_history_rows(serialized, inspections_by_vehicle)
+
+
+def get_analytics_for_user(user: sqlite3.Row) -> Dict[str, Any]:
+    with get_connection() as db:
+        centers = load_centers(db)
+        visible_center_ids = visible_center_ids_for_user(user, centers)
+        placeholders = ",".join("?" for _ in visible_center_ids)
+        vehicles = db.execute(
+            f"SELECT id, carrier, rejection_reason, status FROM vehicles WHERE center_id IN ({placeholders})",
+            visible_center_ids,
+        ).fetchall()
+        visible_vehicle_ids = [row["id"] for row in vehicles]
+        rejected = [
+            {
+                "carrier": row["carrier"],
+                "rejectionReason": row["rejection_reason"],
+            }
+            for row in vehicles
+            if row["status"] == QUEUE_STATUS_REJECTED
+        ]
+        if visible_vehicle_ids:
+            inspection_rows = db.execute(
+                f"SELECT final_decision, suitability_json FROM quality_inspections WHERE vehicle_id IN ({','.join('?' for _ in visible_vehicle_ids)})",
+                tuple(visible_vehicle_ids),
+            ).fetchall()
+        else:
+            inspection_rows = []
+    inspections = [
+        {
+            "finalDecision": row["final_decision"],
+            "suitability": parse_json_field(row["suitability_json"], []),
+        }
+        for row in inspection_rows
+    ]
+    return {
+        **build_analytics(rejected, inspections),
+        "loaded": True,
+    }
 
 
 def build_public_city_turn_counts(city_queue_lists: Dict[str, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
@@ -2052,7 +2146,7 @@ def get_vehicle_detail_for_user(user: sqlite3.Row, vehicle_id: str) -> Dict[str,
             (row["center_id"],),
         ).fetchall()
         turn_positions = calculate_turn_positions(queued_rows)
-        city_turn_map, _city_queue_lists = build_city_turn_maps(queued_rows, destination_lookup)
+        city_turn_map, _city_queue_lists = build_city_turn_maps(queued_rows, destination_lookup, include_lists=False)
         latest_inspections = load_latest_inspections(db, include_media=True)
         inspections_by_vehicle = load_inspections_by_vehicle(db, include_media=True)
         vehicle = serialize_vehicle(row, turn_positions, latest_inspections, destination_lookup, city_turn_map, include_media=True, inspection_summary_only=False)
@@ -2081,7 +2175,7 @@ def build_mobile_quality_state(user: sqlite3.Row) -> Dict[str, Any]:
         latest_inspections = load_latest_inspections(db, include_media=False)
 
     turn_positions = calculate_turn_positions(queued_rows)
-    city_turn_map, _city_queue_lists = build_city_turn_maps(queued_rows, destination_lookup)
+    city_turn_map, _city_queue_lists = build_city_turn_maps(queued_rows, destination_lookup, include_lists=False)
     queued = [
         serialize_vehicle(
             row,
@@ -2190,6 +2284,11 @@ def create_vehicle(
     empty_weight = parse_float(payload.get("emptyWeightKg"))
     driver_selfie_data_url = payload.get("driverSelfieDataUrl")
     driver_signature_data_url = payload.get("driverSignatureDataUrl")
+    vehicle_head_photo_data_url = payload.get("vehicleHeadPhotoDataUrl")
+    vehicle_cargo_photo_data_url = payload.get("vehicleCargoPhotoDataUrl")
+    vehicle_plate_detected = parse_bool(payload.get("vehiclePlateDetected"))
+    vehicle_plate_detected_text = clean_text(payload.get("vehiclePlateDetectedText"))
+    vehicle_cargo_confirmed_empty = parse_bool(payload.get("vehicleCargoConfirmedEmpty"))
     destination_ids = [clean_text(destination_id)] if destination_id else []
     if isinstance(destination_ids_payload, list):
         destination_ids = [clean_text(item) for item in destination_ids_payload if clean_text(item)]
@@ -2207,6 +2306,14 @@ def create_vehicle(
             raise AppError("Debes tomar una selfie del conductor para registrarte.", 400)
         if not isinstance(driver_signature_data_url, str) or not driver_signature_data_url.startswith("data:image/"):
             raise AppError("Debes firmar en pantalla para completar el registro.", 400)
+        if not isinstance(vehicle_head_photo_data_url, str) or not vehicle_head_photo_data_url.startswith("data:image/"):
+            raise AppError("Debes tomar la foto del cabezote del vehiculo antes de asignar turno.", 400)
+        if not isinstance(vehicle_cargo_photo_data_url, str) or not vehicle_cargo_photo_data_url.startswith("data:image/"):
+            raise AppError("Debes tomar la foto del interior de la carroceria antes de asignar turno.", 400)
+        if not vehicle_plate_detected:
+            raise AppError("La foto del cabezote debe mostrar una placa detectada claramente.", 400)
+        if not vehicle_cargo_confirmed_empty:
+            raise AppError("Debes confirmar que la carroceria esta vacia antes de asignar turno.", 400)
 
     with get_connection() as db:
         center = db.execute("SELECT * FROM centers WHERE id = ?", (clean_text(center_id) or DEFAULT_CENTER_ID,)).fetchone()
@@ -2254,14 +2361,26 @@ def create_vehicle(
             if isinstance(driver_signature_data_url, str) and driver_signature_data_url.startswith("data:image/")
             else None
         )
+        vehicle_head_photo_url = (
+            save_data_url_image(vehicle_id, "registro", "vehiculo_cabezote", 1, vehicle_head_photo_data_url)
+            if isinstance(vehicle_head_photo_data_url, str) and vehicle_head_photo_data_url.startswith("data:image/")
+            else None
+        )
+        vehicle_cargo_photo_url = (
+            save_data_url_image(vehicle_id, "registro", "vehiculo_carroceria", 1, vehicle_cargo_photo_data_url)
+            if isinstance(vehicle_cargo_photo_data_url, str) and vehicle_cargo_photo_data_url.startswith("data:image/")
+            else None
+        )
         db.execute(
             """
             INSERT INTO vehicles (
                 id, plate, carrier_id, carrier_code, carrier, driver_name, driver_id, driver_phone,
-                empty_weight_kg, driver_selfie_url, driver_signature_url, destination_ids_json, destination_id, city, zone,
+                empty_weight_kg, driver_selfie_url, driver_signature_url, vehicle_head_photo_url, vehicle_cargo_photo_url,
+                vehicle_plate_detected, vehicle_plate_detected_text, vehicle_cargo_confirmed_empty,
+                destination_ids_json, destination_id, city, zone,
                 center_id, center_code, center_name, queue_group, status, quality_status, queue_position, created_at, registration_channel, gps_lat, gps_lng,
                 gps_distance_m, public_tracking_token
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 vehicle_id,
@@ -2275,6 +2394,11 @@ def create_vehicle(
                 empty_weight,
                 driver_selfie_url,
                 driver_signature_url,
+                vehicle_head_photo_url,
+                vehicle_cargo_photo_url,
+                1 if vehicle_plate_detected else 0,
+                vehicle_plate_detected_text or plate,
+                1 if vehicle_cargo_confirmed_empty else 0,
                 json.dumps(destination_ids, ensure_ascii=False),
                 destination["id"],
                 destination["city"],
@@ -3032,6 +3156,12 @@ class Handler(BaseHTTPRequestHandler):
                 if not user:
                     return
                 self.send_json(get_user_state(user, self.request_origin()))
+                return
+            if parsed.path == "/api/analytics":
+                user = self.require_user()
+                if not user:
+                    return
+                self.send_json(get_analytics_for_user(user))
                 return
             if parsed.path == "/api/history":
                 user = self.require_user()

@@ -1063,6 +1063,38 @@ th {
 
 .capture-card p { color: var(--muted); }
 
+.capture-actions-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.checkbox-inline {
+  display: flex;
+  align-items: start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1.5px dashed rgba(148, 163, 184, 0.45);
+  border-radius: 16px;
+  background: rgba(248, 251, 255, 0.86);
+  color: var(--ink);
+}
+
+.checkbox-inline input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  flex: 0 0 auto;
+  accent-color: var(--primary);
+}
+
+.checkbox-inline span {
+  font-size: 0.92rem;
+  line-height: 1.4;
+}
+
 .selfie-preview {
   min-height: 190px;
   display: grid;
@@ -1085,6 +1117,26 @@ th {
   border-radius: 16px;
   object-fit: cover;
   box-shadow: var(--shadow-sm);
+}
+
+.camera-capture-shell {
+  position: relative;
+  overflow: hidden;
+  border-radius: 18px;
+  border: 1.5px solid rgba(191, 209, 233, 0.85);
+  background: #0d1e3a;
+}
+
+.camera-capture-video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  background: #0d1e3a;
+}
+
+.public-camera-modal {
+  width: min(760px, 100%);
 }
 
 .signature-wrap {
